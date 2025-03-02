@@ -16,6 +16,9 @@ classifiers = [
     "Operating System :: OS Independent",
     "License :: OSI Approved :: MIT License",
 ]
+dependencies = [
+    "gpm_api",
+]
 
 [project.urls]
 Homepage = "https://github.com/aleksandrina.streltsova/pmw-analysis"
