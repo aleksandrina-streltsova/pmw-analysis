@@ -1,6 +1,8 @@
 """This module contains GPM PMW 1B and 1C products community-based retrievals."""
-from collections import defaultdict
+from typing import Union, Optional, Callable, List, Dict, Tuple
 
+import gpm.utils.pmw
+import pandas as pd
 import xarray as xr
 from gpm.utils.pmw import (
     PMWFrequency,
@@ -10,9 +12,16 @@ from gpm.utils.xarray import (
     get_xarray_variable,
 )
 
+import pmw_analysis.utils.pmw
 
-def retrieve_frequency_difference(ds: xr.Dataset, variable: str = None) -> xr.Dataset:
-    """Retrieve PMW Channels Frequency Difference (FD)."""
+
+def _retrieve_frequency_difference_xr(
+        ds: xr.Dataset,
+        variable: Optional[str],
+        find_pairs: Callable[[List[PMWFrequency]], Dict[str, Tuple[PMWFrequency, PMWFrequency]]],
+        prefix: str,
+        name: str,
+) -> xr.Dataset:
     # Retrieve DataArray with brightness temperatures
     if variable is None:
         variable = get_default_variable(ds, possible_variables=["Tb", "Tc"])
@@ -21,29 +30,57 @@ def retrieve_frequency_difference(ds: xr.Dataset, variable: str = None) -> xr.Da
     # Retrieve available frequencies
     pmw_frequencies = [PMWFrequency.from_string(freq) for freq in da["pmw_frequency"].data]
 
-    # Retrieve frequencies grouped by polarization
-    dict_frequency_groups = defaultdict(list)
-    for freq in pmw_frequencies:
-        dict_frequency_groups[freq.polarization].append(freq)
-    dict_frequency_groups = {pol: freqs for pol, freqs in dict_frequency_groups.items() if len(freqs) > 1}
+    # Retrieve pairs
+    dict_pairs = find_pairs(pmw_frequencies)
 
     # If no combo, raise error
-    if len(dict_frequency_groups) == 0:
+    if len(dict_pairs) == 0:
         pmw_frequencies = [freq.title() for freq in pmw_frequencies]
-        raise ValueError(f"Impossible to compute frequency difference with channels: {pmw_frequencies}. No pairs.")
+        raise ValueError(f"Impossible to compute {name} with channels: {pmw_frequencies}. No pairs.")
 
-    # Compute FDs
+    # Compute differences
     ds_t = da.gpm.unstack_dimension(dim="pmw_frequency", prefix="", suffix="")
-    dict_fd = {}
-    for pol, freqs in dict_frequency_groups.items():
-        for freq_curr, freq_next in zip(freqs, freqs[1:]):
-            fd_name = f"FD_{freq_curr.to_string()}_{freq_next.to_string()}"
-            dict_fd[fd_name] = ds_t[f"{variable}{freq_curr.to_string()}"] - ds_t[f"{variable}{freq_next.to_string()}"]
+    dict_diff = {}
+    for pair_str, (freq_curr, freq_next) in dict_pairs.items():
+        diff_name = f"{prefix}_{pair_str}"
+        dict_diff[diff_name] = ds_t[f"{variable}{freq_curr.to_string()}"] - ds_t[f"{variable}{freq_next.to_string()}"]
 
     # Create dataset
-    ds_fd = xr.Dataset(dict_fd)
-    return ds_fd
+    ds_diff = xr.Dataset(dict_diff)
+    return ds_diff
+
+
+def _retrieve_difference(
+        data: Union[xr.Dataset, pd.DataFrame],
+        variable: Optional[str],
+        find_pairs: Callable[[List[PMWFrequency]], Dict[str, Tuple[PMWFrequency, PMWFrequency]]],
+        prefix: str,
+        name: str,
+) -> Union[xr.Dataset, pd.DataFrame]:
+    if isinstance(data, xr.Dataset):
+        return _retrieve_frequency_difference_xr(data, variable, find_pairs, prefix, name)
+    # elif data is pd.DataFrame:
+    #     return _retrieve_frequency_difference_pd(data, variable)
+    raise TypeError(f"Unsupported data type: {type(data)}")
+
+
+def retrieve_polarization_difference(
+        data: Union[xr.Dataset, pd.DataFrame],
+        variable: Optional[str] = None,
+) -> Union[xr.Dataset, pd.DataFrame]:
+    """Retrieve PMW Channels Polarized Difference (PD)."""
+    return _retrieve_difference(data, variable, gpm.utils.pmw.find_polarization_pairs, "PD", "polarized difference")
+
+
+def retrieve_frequency_difference(
+        data: Union[xr.Dataset, pd.DataFrame],
+        variable: Optional[str] = None,
+) -> Union[xr.Dataset, pd.DataFrame]:
+    """Retrieve PMW Channels Frequency Difference (FD)."""
+    return _retrieve_difference(data, variable, pmw_analysis.utils.pmw.find_frequency_pairs, "FD",
+                                "frequency difference")
 
 
 #### ALIAS
+retrieve_PD = retrieve_polarization_difference
 retrieve_FD = retrieve_frequency_difference
