@@ -1,0 +1,28 @@
+name: gpm-dev-venv
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.10,<3.13  # 3.13 is only supported starting numpy 2.1 which is incompatible with umap<=0.5.7
+  - xarray>=2025.01.0
+  - numpy<2.0           # numpy>=2.0 is incompatible with umap<=0.5.7
+  - umap-learn
+  - seaborn
+  - jupyter
+  - polars
+  - xarray-datatree     # to be deprecated as soon datatree in xarray is working
+  - xoak
+  - netcdf4
+  - dask
+  - distributed
+  - tqdm
+  - click
+  - pyyaml
+  - donfig
+  - trollsift
+  - matplotlib>=3.8.3   # introduce pcolormesh rgb
+  - cartopy>=0.22.0
+  - pyproj
+  - pandas
+  - scipy
+  - pycolorbar>=0.1.0
+  - pylint
