@@ -18,6 +18,7 @@ classifiers = [
 ]
 dependencies = [
     "gpm_api",
+    "polars",
 ]
 
 [project.urls]

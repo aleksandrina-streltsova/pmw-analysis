@@ -1,4 +1,6 @@
-"""This module provides PMW utilities."""
+"""
+This module provides PMW utilities.
+"""
 from collections import defaultdict
 from typing import List, Tuple, Dict
 
@@ -6,7 +8,8 @@ from gpm.utils.pmw import PMWFrequency
 
 
 def find_frequency_pairs(pmw_frequencies: List[PMWFrequency]) -> Dict[str, Tuple[PMWFrequency, PMWFrequency]]:
-    """Identify center frequency pairs of PMWFrequency objects.
+    """
+    Identify center frequency pairs of PMWFrequency objects.
 
     The PMWFrequency objects must share the same polarization
     but differ in center frequency (e.g., 10 GHz vs 19 GHz).

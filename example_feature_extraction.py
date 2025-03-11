@@ -1,10 +1,12 @@
-"""Example."""
+"""
+Example of feature retrieval.
+"""
 import gpm
 import xarray as xr
 from gpm.retrievals.retrieval_1b_c_pmw import retrieve_PD, retrieve_PR, retrieve_PCT, retrieve_rgb_composites
 from matplotlib import pyplot as plt
 
-from pmw_analysis.preprocessing.feature_extraction import dataset_to_dataframe
+from pmw_analysis.preprocessing import dataset_to_dataframe
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_FD
 
 # Define analysis time period
