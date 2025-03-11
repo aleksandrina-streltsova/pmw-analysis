@@ -7,3 +7,5 @@ DOMINANT_CYCLE_COLUMN_SUFFIX = "_dominant_cycle"
 
 NAME_ATTR = "name"
 PERIODOGRAM_DICT_ATTR = "periodogram_dict"
+
+ALONG_TRACK_DIM = "along_track"

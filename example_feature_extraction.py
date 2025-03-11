@@ -6,6 +6,7 @@ import xarray as xr
 from gpm.retrievals.retrieval_1b_c_pmw import retrieve_PD, retrieve_PR, retrieve_PCT, retrieve_rgb_composites
 from matplotlib import pyplot as plt
 
+from pmw_analysis.constants import ALONG_TRACK_DIM
 from pmw_analysis.preprocessing import dataset_to_dataframe
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_FD
 
@@ -39,7 +40,7 @@ ds = dt.gpm.regrid_pmw_l1(scan_mode_reference="S1")
 # Load data over region of interest
 extent = [12, 16, 39, 42]
 list_isel_dict = ds.gpm.get_crop_slices_by_extent(extent)
-ds = xr.concat([ds.isel(isel_dict) for isel_dict in list_isel_dict], dim="along_track")
+ds = xr.concat([ds.isel(isel_dict) for isel_dict in list_isel_dict], dim=ALONG_TRACK_DIM)
 ds = ds.compute()
 
 da = ds[VARIABLE_TC]
