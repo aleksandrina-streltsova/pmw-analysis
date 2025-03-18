@@ -6,33 +6,31 @@ from typing import List, Tuple, Optional
 
 import gpm.bucket
 import pandas as pd
-import xarray as xr
 
-from pmw_analysis.constants import TIME_COLUMN
+from pmw_analysis.constants import COLUMN_TIME
 
 
 def _get_feature_columns(df: pd.DataFrame) -> List[str]:
-    return [col for col in df.columns if col != TIME_COLUMN]
+    return [col for col in df.columns if col != COLUMN_TIME]
 
 
 # TODO: enable using custom bins and return calculated bins
-def dataset_to_dataframe(ds: xr.Dataset) -> Tuple[pd.DataFrame, List[str]]:
+def segment_features_into_bins(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     """
-    Convert xarray Dataset to DataFrame leaving only features.
+    Use `pandas.qcut` to discretize features and retain only unique rows.
     """
-    df = ds.reset_coords(names=TIME_COLUMN).reset_coords(drop=True).to_dataframe()
-    # TODO: why does PD_165 have NaN? should rows with NaNs be processed differently?
-    df = df.dropna()
-
     feature_cols = _get_feature_columns(df)
+    df = remove_missing_values(df, subset=feature_cols)
+
     for feature_col in feature_cols:
         # TODO: how many bins can we afford to keep?
-        n_bins = 50
-        df[feature_col] = pd.cut(df[feature_col], n_bins).astype(object).apply(lambda interval: interval.mid)
+        n_bins = 30
+        segmented, _ = pd.qcut(df[feature_col], n_bins, retbins=True)
+        df[feature_col] = segmented.astype(object).apply(lambda interval: interval.mid)
 
     df_agg = df.groupby(feature_cols).agg(
-        count=(TIME_COLUMN, 'size'),
-        first_occurrence=(TIME_COLUMN, 'min'),
+        count=(COLUMN_TIME, 'size'),
+        first_occurrence=(COLUMN_TIME, 'min'),
     ).reset_index()
 
     return df_agg, feature_cols
@@ -61,12 +59,21 @@ def read_time_series_and_drop_nan(bucket_dir: str,
                           f" Available columns are: {ts_pd.columns}.")
             feature_columns = [col for col in feature_columns if col not in missing_columns]
 
-    count_before_filtering = len(ts_pd)
-    ts_pd = ts_pd.dropna(subset=feature_columns)
-    count_after_filtering = len(ts_pd)
-    print(f"Filtered {count_before_filtering - count_after_filtering}/{count_after_filtering} points")
+    ts_pd = remove_missing_values(ts_pd, subset=feature_columns)
 
     if name is not None:
         ts_pd.attrs["name"] = name
 
     return ts_pd
+
+
+def remove_missing_values(df: pd.DataFrame, subset: Optional[List[str]] = None) -> pd.DataFrame:
+    """
+    Remove missing values from a DataFrame and print the number of rows removed.
+    """
+    count_before_filtering = len(df)
+    df = df.dropna(subset=subset)
+    count_after_filtering = len(df)
+    print(f"Filtered {count_before_filtering - count_after_filtering}/{count_before_filtering} points")
+
+    return df

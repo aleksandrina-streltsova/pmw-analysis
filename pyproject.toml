@@ -19,6 +19,8 @@ classifiers = [
 dependencies = [
     "gpm_api",
     "polars",
+    "scikit-learn",
+    "umap-learn",
 ]
 
 [project.urls]

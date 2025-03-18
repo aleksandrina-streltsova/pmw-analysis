@@ -1,11 +1,29 @@
 """
 This module contains constants used throughout the project.
 """
-TIME_COLUMN = "time"
-TIME_FRACTION_COLUMN = "time_fraction"
-DOMINANT_CYCLE_COLUMN_SUFFIX = "_dominant_cycle"
 
-NAME_ATTR = "name"
-PERIODOGRAM_DICT_ATTR = "periodogram_dict"
+COLUMN_COUNT = "count"
+COLUMN_FIRST_OCCURRENCE = "first_occurrence"
+COLUMN_TIME = "time"
+COLUMN_TIME_FRACTION = "time_fraction"
+COLUMN_SUFFIX_DOMINANT_CYCLE = "_dominant_cycle"
 
-ALONG_TRACK_DIM = "along_track"
+ATTR_NAME = "name"
+ATTR_PERIODOGRAM_DICT = "periodogram_dict"
+
+DIM_ALONG_TRACK = "along_track"
+DIM_PMW = "pmw_frequency"
+
+SAVEFIG_FLAG = False
+
+SAVEFIG_DIR = "images"
+BUCKET_DIR = "/home/rina/Desktop/data_spb"
+
+PRODUCT_1C_GMI_R = "1C-GMI-R"
+PRODUCT_TYPE_RS = "RS"
+
+VARIABLE_TC = "Tc"
+
+VERSION = 7
+
+STORAGE_GES_DISC = "GES_DISC"

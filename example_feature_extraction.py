@@ -1,13 +1,18 @@
 """
 Example of feature retrieval.
 """
+import pathlib
+
 import gpm
 import xarray as xr
 from gpm.retrievals.retrieval_1b_c_pmw import retrieve_PD, retrieve_PR, retrieve_PCT, retrieve_rgb_composites
 from matplotlib import pyplot as plt
 
-from pmw_analysis.constants import ALONG_TRACK_DIM
-from pmw_analysis.preprocessing import dataset_to_dataframe
+from pmw_analysis.constants import (
+    DIM_ALONG_TRACK, COLUMN_TIME, SAVEFIG_FLAG, SAVEFIG_DIR, PRODUCT_1C_GMI_R,
+    PRODUCT_TYPE_RS, VERSION, STORAGE_GES_DISC, VARIABLE_TC, DIM_PMW,
+)
+from pmw_analysis.preprocessing import segment_features_into_bins
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_FD
 
 # Define analysis time period
@@ -15,19 +20,14 @@ START_TIME = "2015-09-05 08:00:00"
 END_TIME = "2015-09-05 09:00:00"
 
 # Define product
-PRODUCT = "1C-GMI-R"
-PRODUCT_TYPE = "RS"
-VARIABLE_TC = "Tc"
-DIM_PMW = "pmw_frequency"
-VERSION = 7
-
-STORAGE = "GES_DISC"
+PRODUCT = PRODUCT_1C_GMI_R
+PRODUCT_TYPE = PRODUCT_TYPE_RS
 
 # Get available products
 gpm.available_products(product_levels="1C", start_time=START_TIME, end_time=END_TIME)
 
 # Download data
-gpm.download(PRODUCT, START_TIME, END_TIME, PRODUCT_TYPE, VERSION, STORAGE)
+gpm.download(PRODUCT, START_TIME, END_TIME, PRODUCT_TYPE, VERSION, STORAGE_GES_DISC)
 
 # Open data
 # TODO: chunks?
@@ -40,7 +40,7 @@ ds = dt.gpm.regrid_pmw_l1(scan_mode_reference="S1")
 # Load data over region of interest
 extent = [12, 16, 39, 42]
 list_isel_dict = ds.gpm.get_crop_slices_by_extent(extent)
-ds = xr.concat([ds.isel(isel_dict) for isel_dict in list_isel_dict], dim=ALONG_TRACK_DIM)
+ds = xr.concat([ds.isel(isel_dict) for isel_dict in list_isel_dict], dim=DIM_ALONG_TRACK)
 ds = ds.compute()
 
 da = ds[VARIABLE_TC]
@@ -79,13 +79,23 @@ for var, ds_var in [(VARIABLE_TC, ds_tc), ("PD", ds_pd), ("FD", ds_fd)]:
     fc.remove_title_dimension_prefix()
     # TODO: why is `ds.gpm.crop(extent)` not enough?
     fc.set_extent(extent)
+    if SAVEFIG_FLAG:
+        plt.savefig(pathlib.Path(SAVEFIG_DIR) / f"hurricane_{var}.png")
     plt.show()
 
 # Convert xarray Dataset to pandas DataFrame
-df, feature_cols = dataset_to_dataframe(ds_pd)
+df_pd = ds_pd.reset_coords(names=COLUMN_TIME).reset_coords(drop=True).to_dataframe()
+# TODO: why does PD_165 have NaN? should rows with NaNs be processed differently?
+df_pd_cut, feature_cols = segment_features_into_bins(df_pd)
 
-df[feature_cols].hist(bins=100, figsize=(10, 10))
+df_pd[feature_cols].hist(bins=100, figsize=(6, 6))
+plt.tight_layout()
 plt.show()
 
-df[["count"]].hist(bins=20)
+df_pd_cut[feature_cols].hist(bins=100, figsize=(6, 6))
+plt.tight_layout()
+plt.show()
+
+df_pd_cut[["count"]].hist(bins=20)
+plt.yscale('log')
 plt.show()
