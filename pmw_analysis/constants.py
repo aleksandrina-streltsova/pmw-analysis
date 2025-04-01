@@ -14,15 +14,17 @@ ATTR_PERIODOGRAM_DICT = "periodogram_dict"
 DIM_ALONG_TRACK = "along_track"
 DIM_PMW = "pmw_frequency"
 
-SAVEFIG_FLAG = False
+SAVEFIG_FLAG = True
 
 SAVEFIG_DIR = "images"
 BUCKET_DIR = "/home/rina/Desktop/data_spb"
 
 PRODUCT_1C_GMI_R = "1C-GMI-R"
+PRODUCT_2A_GMI = "2A-GMI"
 PRODUCT_TYPE_RS = "RS"
 
 VARIABLE_TC = "Tc"
+VARIABLE_SURFACE_TYPE_INDEX = "surfaceTypeIndex"
 
 VERSION = 7
 
