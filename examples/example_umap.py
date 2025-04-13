@@ -18,7 +18,7 @@ from pmw_analysis.constants import (
     STORAGE_GES_DISC, VARIABLE_TC, DIM_PMW, DIM_ALONG_TRACK, PRODUCT_2A_GMI, VARIABLE_SURFACE_TYPE_INDEX,
 )
 from pmw_analysis.copypaste.utils.dataframe import compute_2d_histogram
-from pmw_analysis.preprocessing import remove_missing_values
+from pmw_analysis.preprocessing_pandas import remove_missing_values
 from pmw_analysis.utils.pyplot import get_surface_type_cmap
 
 # Define product

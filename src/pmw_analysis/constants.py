@@ -8,6 +8,8 @@ COLUMN_TIME = "time"
 COLUMN_TIME_FRACTION = "time_fraction"
 COLUMN_SUFFIX_DOMINANT_CYCLE = "_dominant_cycle"
 
+STRUCT_FIELD_COUNT = "struct_count"
+
 ATTR_NAME = "name"
 ATTR_PERIODOGRAM_DICT = "periodogram_dict"
 
