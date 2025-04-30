@@ -47,17 +47,17 @@ def get_surface_type_cmap(surface_types: List[str]):
         "Low vegetation": "yellowgreen",
         "Sparse vegetation": "lightgreen",
         "Desert": "tan",
-        "Elevated snow cover": "white",
-        "High snow cover": "lightgray",
-        "Moderate snow cover": "gray",
-        "Light snow cover": "darkgray",
+        "Elevated snow cover": "mediumpurple",
+        "High snow cover": "rebeccapurple",
+        "Moderate snow cover": "darkorchid",
+        "Light snow cover": "mediumslateblue",
         "Standing Water": "navy",
         "Ocean or water Coast": "deepskyblue",
         "Mixed land/ocean or water coast": "cornflowerblue",
         "Land coast": "gold",
         "Sea-ice edge": "slateblue",
         "Mountain rain": "orange",
-        "Mountain snow": "snow",
+        "Mountain snow": "lavender",
     })
     # Create a custom colormap
     cmap = mcolors.ListedColormap([surface_to_color[surface_type] for surface_type in surface_types])

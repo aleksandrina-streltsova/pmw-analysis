@@ -136,9 +136,9 @@ p = ds["max_Tc_10H"].gpm.plot_map(x="longitude", y="latitude", cmap="Spectral_r"
                                   vmin=260, vmax=350,
                                   fig_kwargs=fig_kwargs,
                                   cbar_kwargs=cbar_kwargs)
-p.axes.set_title("Maximum GMI Tb at 10 GHz")
-p.axes.scatter(point_city[0], point_city[1], marker="x", c="black")
-p.axes.scatter(point_outskirts[0], point_outskirts[1], marker="x", c="blue")
+p.axes_count.set_title("Maximum GMI Tb at 10 GHz")
+p.axes_count.scatter(point_city[0], point_city[1], marker="x", c="black")
+p.axes_count.scatter(point_outskirts[0], point_outskirts[1], marker="x", c="blue")
 if SAVEFIG_FLAG:
     plt.savefig(pathlib.Path(SAVEFIG_DIR) / "point_locations.png")
 plt.show()
@@ -148,7 +148,7 @@ p = ds["median_Tc_10H"].gpm.plot_map(x="longitude", y="latitude", cmap="Spectral
                                      # vmin=260, vmax=350,
                                      fig_kwargs=fig_kwargs,
                                      cbar_kwargs=cbar_kwargs)
-p.axes.set_title("Maximum GMI Tb at 10 GHz")
-p.axes.scatter(point_city[0], point_city[1], marker="x", c="black")
-p.axes.scatter(point_outskirts[0], point_outskirts[1], marker="x", c="blue")
+p.axes_count.set_title("Maximum GMI Tb at 10 GHz")
+p.axes_count.scatter(point_city[0], point_city[1], marker="x", c="black")
+p.axes_count.scatter(point_outskirts[0], point_outskirts[1], marker="x", c="blue")
 plt.show()

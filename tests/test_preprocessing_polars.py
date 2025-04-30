@@ -236,15 +236,15 @@ def test_aggregate():
     expected[0, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 0, 0, 0)
     expected[1, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 1, 0, 0)
     # count
-    expected[0, STRUCT_FIELD_COUNT] = n - 1
-    expected[1, STRUCT_FIELD_COUNT] = 1
+    expected[0, COLUMN_COUNT] = n - 1
+    expected[1, COLUMN_COUNT] = 1
 
     actual = _aggregate(df_before)
     actual = actual.with_columns([
         pl.col(flag_col).list.sort()
         for flag_col in flag_cols
     ])
-    actual = actual.sort(by=STRUCT_FIELD_COUNT, descending=True)
+    actual = actual.sort(by=COLUMN_COUNT, descending=True)
 
     # TODO should the order be preserved?
     assert sorted(expected.columns) == sorted(actual.columns)
@@ -265,6 +265,9 @@ def test_merge():
     #### dfs before merging ####
     n = 6
     dfs = [pl.concat([_create_single_row_aggregated() for _ in range(2)]) for _ in range(2)]
+
+    # test that order of columns doesn't affect merge
+    dfs[0] = dfs[0].select(dfs[0].columns[::-1])
 
     for k in range(len(dfs)):
         # tc
