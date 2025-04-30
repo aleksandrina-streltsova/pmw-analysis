@@ -7,6 +7,8 @@ COLUMN_FIRST_OCCURRENCE = "first_occurrence"
 COLUMN_TIME = "time"
 COLUMN_TIME_FRACTION = "time_fraction"
 COLUMN_SUFFIX_DOMINANT_CYCLE = "_dominant_cycle"
+COLUMN_LON = "lon"
+COLUMN_LAT = "lat"
 
 STRUCT_FIELD_COUNT = "struct_count"
 
