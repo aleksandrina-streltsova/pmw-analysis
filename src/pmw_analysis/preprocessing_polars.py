@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Tuple, Iterable
+from typing import Dict, Tuple, Iterable
 
 import pandas as pd
 import polars as pl
@@ -10,7 +10,7 @@ from pmw_analysis.utils.performance import get_memory_usage
 
 
 #### COLUMNS ####
-def _get_columns_to_drop(columns: Iterable[str]) -> List[str]:
+def _get_columns_to_drop(columns: Iterable[str]) -> Iterable[str]:
     columns_to_drop = [
         'gpm_id',
         'gpm_granule_id',
@@ -21,11 +21,11 @@ def _get_columns_to_drop(columns: Iterable[str]) -> List[str]:
     return [col for col in columns if col in columns_to_drop]
 
 
-def _get_tc_columns(columns: Iterable[str]) -> List[str]:
+def _get_tc_columns(columns: Iterable[str]) -> Iterable[str]:
     return [col for col in columns if col.startswith("Tc")]
 
 
-def _get_flag_columns(columns: Iterable[str]) -> List[str]:
+def _get_flag_columns(columns: Iterable[str]) -> Iterable[str]:
     flag_columns = [
         'Quality_LF',  # 0 .. 3, -99
         'SCorientation',  # 0 180, -8000, -9999
@@ -40,7 +40,7 @@ def _get_flag_columns(columns: Iterable[str]) -> List[str]:
 
 
 # TODO: depends on info
-def _get_periodic_columns(columns: Iterable[str]) -> List[str]:
+def _get_periodic_columns(columns: Iterable[str]) -> Iterable[str]:
     periodic_columns = [
         'sunLocalTime',  # mean of [0, 12], mean of [12, 24]
         'lon',  # mean of [-180, 0], mean of [0, 180]
@@ -49,7 +49,7 @@ def _get_periodic_columns(columns: Iterable[str]) -> List[str]:
     return [col for col in columns if col in periodic_columns]
 
 
-def _get_special_columns(columns: Iterable[str]) -> List[str]:
+def _get_special_columns(columns: Iterable[str]) -> Iterable[str]:
     special_columns = [
         'sunGlintAngle_LF',  # mean, [0, 127], -88, -99
         'sunGlintAngle_HF',  # mean, [0, 127] -88, -99
@@ -131,7 +131,7 @@ def _get_frequency(key: str):
             raise Exception(f"Unknown key {key}")
 
 
-def get_uncertainties_dict(tc_columns: List[str]) -> Dict[str, float]:
+def get_uncertainties_dict(tc_columns: Iterable[str]) -> Dict[str, float]:
     gmi_characteristics = _get_gmi_characteristics()
     uncertainties = {
         col: gmi_characteristics.loc[_get_frequency(col.removeprefix("Tc_"))][_EXPECTED_TOTAL_UNCERTAINTY]
@@ -140,30 +140,35 @@ def get_uncertainties_dict(tc_columns: List[str]) -> Dict[str, float]:
     return uncertainties
 
 
-def _round(df: pl.DataFrame, uncertainties_dict: Dict[str, float]) -> pl.DataFrame:
-    tc_cols = _get_tc_columns(df.columns)
-
+def _round(df: pl.DataFrame,
+           quant_columns: Iterable[str],
+           quant_steps: Iterable[float | int]) -> pl.DataFrame:
     df_result = df.with_columns([
-        (pl.col(col) / uncertainties_dict[col]).round() * uncertainties_dict[col]
-        for col in tc_cols
+        (pl.col(col) / step).round() * step
+        for col, step in zip(quant_columns, quant_steps)
     ])
 
     return df_result
 
 
-#### SEGMENTING INTO BINS ####
-def _aggregate(df: pl.DataFrame) -> pl.DataFrame:
+#### QUANTIZATION ####
+def _aggregate(df: pl.DataFrame,
+               quant_columns: Iterable[str],
+               flag_columns: Iterable[str],
+               periodic_columns: Iterable[str],
+               special_columns: Iterable[str],
+               agg_min_columns: Iterable[str],
+               periodic_dict: Dict[str, float],
+               special_dict: Dict[str, Tuple[float, str]],
+               ) -> pl.DataFrame:
     columns = set(df.columns)
 
-    tc_cols = _get_tc_columns(columns)
-    flag_cols = _get_flag_columns(columns)
-    periodic_cols = _get_periodic_columns(columns)
-    special_cols = _get_special_columns(columns)
-    other_cols = [col for col in columns if
-                  col not in tc_cols + flag_cols + periodic_cols + special_cols + [COLUMN_TIME]]
-
-    periodic_dict = _get_periodic_dict()
-    special_dict = _get_special_dict()
+    agg_mean_cols = [col for col in columns if
+                     col not in quant_columns and
+                     col not in flag_columns and
+                     col not in periodic_columns and
+                     col not in special_columns and
+                     col not in agg_min_columns]
 
     estimated_size = df.estimated_size() / (1024 * 1024)
     logging.info(f"Estimated dataframe size: {estimated_size:.2f} MB")
@@ -172,12 +177,12 @@ def _aggregate(df: pl.DataFrame) -> pl.DataFrame:
 
     df_result = (
         df
-        .group_by(tc_cols)
+        .group_by(quant_columns)
         .agg(
-            *[pl.col(flag_col).value_counts(name=STRUCT_FIELD_COUNT) for flag_col in flag_cols],
+            *[pl.col(flag_col).value_counts(name=STRUCT_FIELD_COUNT) for flag_col in flag_columns],
 
             *[expr
-              for p_col in periodic_cols
+              for p_col in periodic_columns
               for expr in
               [pl.when(pl.col(p_col) <= periodic_dict[p_col]).then(pl.col(p_col)).mean().alias(f"{p_col}_lt"),
                pl.when(pl.col(p_col) <= periodic_dict[p_col]).then(pl.col(p_col)).count().alias(f"{p_col}_lt_count"),
@@ -185,7 +190,7 @@ def _aggregate(df: pl.DataFrame) -> pl.DataFrame:
                pl.when(pl.col(p_col) > periodic_dict[p_col]).then(pl.col(p_col)).count().alias(f"{p_col}_gt_count")]],
 
             *[expr
-              for s_col in special_cols
+              for s_col in special_columns
               for expr in [pl.col(s_col).filter(pl.col(s_col).ne(special_dict[s_col][0])).mean(),
                            pl.col(s_col).filter(pl.col(s_col).eq(special_dict[s_col][0])).count().alias(
                                f"{s_col}_{special_dict[s_col][1]}_count"),
@@ -194,11 +199,12 @@ def _aggregate(df: pl.DataFrame) -> pl.DataFrame:
                                f"{s_col}_count")]],
 
             *[expr
-              for other_col in other_cols
+              for mean_col in agg_mean_cols
               for expr in
-              [pl.col(other_col).mean(), (pl.len() - pl.col(other_col).null_count()).alias(f"{other_col}_count")]],
+              [pl.col(mean_col).mean(), (pl.len() - pl.col(mean_col).null_count()).alias(f"{mean_col}_count")]],
 
-            *[pl.col(COLUMN_TIME).min(), pl.len().alias(COLUMN_COUNT)],
+            *[pl.col(min_col).min() for min_col in agg_min_columns],
+            pl.len().alias(COLUMN_COUNT),
         )
     )
 
@@ -210,8 +216,7 @@ def _aggregate(df: pl.DataFrame) -> pl.DataFrame:
 
 
 #### PREPROCESSING PIPELINE ####
-def segment_features_into_bins(df: pl.DataFrame, factor: float = 10) -> pl.DataFrame:
-    row_count_before = len(df)
+def quantize_pmw_features(df: pl.DataFrame, factor: float = 10):
     columns = df.columns
 
     # 0. Drop id columns.
@@ -226,22 +231,94 @@ def segment_features_into_bins(df: pl.DataFrame, factor: float = 10) -> pl.DataF
         pl.col(COLUMN_TIME).dt.ordinal_day().alias("day")
     )
 
-    # 3. Round Tc values.
-    df = _round(df, {tc: unc * factor for tc, unc in get_uncertainties_dict(_get_tc_columns(columns)).items()})
-    # df = _round(df, _get_uncertainties_dict(_get_tc_columns(columns)))
+    # 3. Quantize Tc columns and group duplicate signatures.
+    tc_cols = _get_tc_columns(df.columns)
+    unc_dict = get_uncertainties_dict(tc_cols)
+    quant_steps = [factor * unc_dict[tc_col] for tc_col in tc_cols]
 
-    # 4. Aggregate by rounded Tc values.
-    df = _aggregate(df)
+    df = quantize_features(
+        df,
+        quant_columns=tc_cols,
+        quant_steps=quant_steps,
+    )
+
+    return df
+
+
+def quantize_features(df: pl.DataFrame,
+                      quant_columns: Iterable[str],
+                      quant_steps: Iterable[float | int],
+                      flag_columns: Iterable[str] = (),
+                      periodic_columns: Iterable[str] = (),
+                      special_columns: Iterable[str] = (),
+                      agg_min_columns: Iterable[str] = (),
+                      periodic_dict: Dict[str, float] = None,
+                      special_dict: Dict[str, Tuple[float, str]] = None,
+                      ) -> pl.DataFrame:
+    """
+    Quantizes specified feature columns and performs group-wise aggregation on a Polars DataFrame.
+
+    This function performs two main operations:
+      1. Rounds numerical features (`quant_columns`).
+      2. Aggregates the DataFrame based on the quantized values, computing descriptive statistics over other types of columns.
+
+    Parameters:
+        df (pl.DataFrame): The input Polars DataFrame containing features to quantize and aggregate.
+
+        quant_columns (Iterable[str]):
+            Columns whose values will be quantized (rounded to nearest step) and used for grouping.
+
+        quant_steps (Iterable[float | int]):
+            Step sizes used for quantizing each column in `quant_columns`. Must match the length of `quant_columns`.
+
+        flag_columns (Iterable[str], optional):
+            Columns with discrete classification or quality flags (e.g., cloud status, surface type).
+            These are aggregated by computing value counts, producing a list of structs per group.
+
+        periodic_columns (Iterable[str], optional):
+            Columns with periodic or cyclic values (e.g., longitude, local solar time, day of year).
+            These are aggregated using conditional means split at a predefined midpoint:
+              - Values less than or equal to the midpoint (e.g., before noon) are averaged separately from
+                values greater than the midpoint (e.g., after noon).
+            This allows better representation of mean behavior across cycles.
+
+        special_columns (Iterable[str], optional):
+            Columns with special sentinel values indicating non-physical states (e.g., -88 = "below horizon").
+            These are aggregated by computing:
+              - Mean of valid (non-sentinel) values.
+              - Count of sentinel values.
+              - Count of valid values.
+
+        agg_min_columns (Iterable[str], optional):
+            Columns where only the minimum value is retained for each group.
+            This is typically used for timestamp fields (e.g., earliest observation in group).
+
+        periodic_dict (Dict[str, float], optional):
+            Midpoints for each periodic column, used to separate the value space during aggregation.
+            Example: {'sunLocalTime': 12.0, 'lon': 0.0, 'day': 183.0}
+
+        special_dict (Dict[str, Tuple[float, str]], optional):
+            Dictionary specifying the sentinel value and its label for each `special_column`.
+            Example: {'sunGlintAngle_LF': (-88, "below_horizon")}
+
+    Returns:
+        pl.DataFrame: Aggregated DataFrame where rows with similar feature profiles are grouped and summarized.
+    """
+    row_count_before = len(df)
+
+    df = _round(df, quant_columns, quant_steps)
+    df = _aggregate(df, quant_columns,
+                    flag_columns, periodic_columns, special_columns, agg_min_columns,
+                    periodic_dict, special_dict)
+
     assert row_count_before == df[COLUMN_COUNT].sum()
     row_count_after = len(df)
-    logging.info(f"Segmented features into {row_count_after}/{row_count_before} bins")
+    logging.info(f"Quantized features into {row_count_after}/{row_count_before}")
 
     return df
 
 
 #### MERGING PREPROCESSED DATA ####
-
-
 def _get_struct_list_type(flag_column: str) -> pl.List:
     return pl.List(pl.Struct([
         pl.Field(flag_column, pl.Int16),
@@ -254,7 +331,7 @@ def _aggregate_structs(df: pl.DataFrame, flag_column: str) -> pl.DataFrame:
         df
         .with_row_index()  # track original rows
         .explode(flag_column)  # explode the List[Struct]
-        .unnest(flag_column)  # turns into columns 'k', 'v'
+        .unnest(flag_column)  # turns into columns (flag_column, STRUCT_FIELD_COUNT)
         .group_by(["index", flag_column])
         .agg(pl.col(STRUCT_FIELD_COUNT).sum())
         .with_columns(pl.struct([flag_column, STRUCT_FIELD_COUNT]).alias(f"{flag_column}_tmp"))  # build back struct
@@ -268,20 +345,40 @@ def _aggregate_structs(df: pl.DataFrame, flag_column: str) -> pl.DataFrame:
     return df_result
 
 
-# TODO: replace List with Iterable in other places
-def merge_segmented_features(dfs: Iterable[pl.DataFrame]) -> pl.DataFrame:
+def merge_quantized_pmw_features(dfs: Iterable[pl.DataFrame]) -> pl.DataFrame:
+    df = next(iter(dfs))
+    columns = [col.removesuffix("_lt").removesuffix("_gt") for col in df.columns if
+               not col.endswith("count") and not col.endswith("_gt")]
+
+    return merge_quantized_features(
+        dfs,
+        quant_columns=_get_tc_columns(columns),
+        flag_columns=_get_flag_columns(columns),
+        periodic_columns=_get_periodic_columns(columns),
+        special_columns=_get_special_columns(columns),
+        agg_min_columns=[COLUMN_TIME]
+    )
+
+
+def merge_quantized_features(dfs: Iterable[pl.DataFrame],
+                             quant_columns: Iterable[str],
+                             flag_columns: Iterable[str] = (),
+                             periodic_columns: Iterable[str] = (),
+                             special_columns: Iterable[str] = (),
+                             agg_min_columns: Iterable[str] = (),
+                             ) -> pl.DataFrame:
     df = pl.concat(dfs, how="diagonal")
     row_count_before = len(df)
 
     columns = [col.removesuffix("_lt").removesuffix("_gt") for col in df.columns if
                not col.endswith("count") and not col.endswith("_gt")]
 
-    tc_cols = _get_tc_columns(columns)
-    flag_cols = _get_flag_columns(columns)
-    periodic_cols = _get_periodic_columns(columns)
-    special_cols = _get_special_columns(columns)
-    other_cols = [col for col in columns if
-                  col not in tc_cols + flag_cols + periodic_cols + special_cols + [COLUMN_TIME]]
+    agg_mean_cols = [col for col in columns if
+                     col not in quant_columns and
+                     col not in flag_columns and
+                     col not in periodic_columns and
+                     col not in special_columns and
+                     col not in agg_min_columns]
 
     special_dict = _get_special_dict()
 
@@ -295,23 +392,23 @@ def merge_segmented_features(dfs: Iterable[pl.DataFrame]) -> pl.DataFrame:
 
     df_result = (
         df
-        .group_by(tc_cols)
-        .agg(*[pl.col(flag_col).flatten() for flag_col in flag_cols],
+        .group_by(quant_columns)
+        .agg(*[pl.col(flag_col).flatten() for flag_col in flag_columns],
              *[expr
-               for p_col in periodic_cols
+               for p_col in periodic_columns
                for expr in [aggregate_mean(f"{p_col}_lt"), pl.col(f"{p_col}_lt_count").sum(),
                             aggregate_mean(f"{p_col}_gt"), pl.col(f"{p_col}_gt_count").sum()]],
              *[expr
-               for s_col in special_cols
+               for s_col in special_columns
                for expr in [aggregate_mean(s_col),
                             pl.col(f"{s_col}_{special_dict[s_col][1]}_count").sum(),
                             pl.col(f"{s_col}_count").sum()]],
 
              *[expr
-               for other_col in other_cols
-               for expr in [aggregate_mean(other_col),
-                            pl.col(f"{other_col}_count").sum()]],
-             pl.col(COLUMN_TIME).min(),
+               for mean_col in agg_mean_cols
+               for expr in [aggregate_mean(mean_col),
+                            pl.col(f"{mean_col}_count").sum()]],
+             *[pl.col(min_col).min() for min_col in agg_min_columns],
              pl.col(COLUMN_COUNT).sum(),
              )
     )
@@ -319,11 +416,11 @@ def merge_segmented_features(dfs: Iterable[pl.DataFrame]) -> pl.DataFrame:
     memory_usage_after = get_memory_usage()
     logging.info(f"Memory used by aggregation: {memory_usage_after - memory_usage_before:.2f} MB")
 
-    for flag_col in tqdm(flag_cols):
+    for flag_col in tqdm(flag_columns):
         df_result = _aggregate_structs(df_result, flag_col)
 
     row_count_after = len(df_result)
-    logging.info(f"Segmented features into {row_count_after}/{row_count_before} bins")
+    logging.info(f"Quantized features into {row_count_after}/{row_count_before}")
 
     assert df_result[COLUMN_COUNT].sum() == df[COLUMN_COUNT].sum()
     return df_result

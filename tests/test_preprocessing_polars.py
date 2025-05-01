@@ -6,7 +6,7 @@ import polars as pl
 
 from pmw_analysis.constants import COLUMN_TIME, COLUMN_COUNT, STRUCT_FIELD_COUNT
 from pmw_analysis.preprocessing_polars import _round, _get_tc_columns, _get_flag_columns, _get_periodic_columns, \
-    _get_special_columns, _get_special_dict, _aggregate, _get_periodic_dict, merge_segmented_features
+    _get_special_columns, _get_special_dict, _aggregate, _get_periodic_dict, merge_quantized_pmw_features
 
 
 def _get_test_columns():
@@ -109,7 +109,7 @@ def test_round() -> None:
         df_before[2, tc_columns[i]] = 0.3 + 2 * i
     df_before[2, tc_columns[n_tc - 1]] = (0.5 + (n_tc - 1) * 1.5) * 2 + 1
 
-    uncertainties = {col: 0.5 + i * 1.5 for i, col in enumerate(tc_columns)}
+    uncertainties = [0.5 + i * 1.5 for i, col in enumerate(tc_columns)]
 
     df_after_expected = df_before.clone()
     for i in range(n_tc):
@@ -118,7 +118,7 @@ def test_round() -> None:
         df_after_expected[2, tc_columns[i]] = 0.5 + i * 1.5
     df_after_expected[2, tc_columns[n_tc - 1]] = (0.5 + (n_tc - 1) * 1.5) * 2
 
-    df_after_actual = _round(df_before, uncertainties)
+    df_after_actual = _round(df_before, tc_columns, uncertainties)
 
     assert df_after_expected.equals(df_after_actual)
 
@@ -239,7 +239,8 @@ def test_aggregate():
     expected[0, COLUMN_COUNT] = n - 1
     expected[1, COLUMN_COUNT] = 1
 
-    actual = _aggregate(df_before)
+    actual = _aggregate(df_before, tc_cols, flag_cols, periodic_cols, special_cols, [COLUMN_TIME],
+                        periodic_dict, special_dict)
     actual = actual.with_columns([
         pl.col(flag_col).list.sort()
         for flag_col in flag_cols
@@ -404,7 +405,7 @@ def test_merge():
     for k in range(len(dfs)):
         expected[k + 1, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 1, 0, 0)
 
-    actual = merge_segmented_features(dfs)
+    actual = merge_quantized_pmw_features(dfs)
     actual = actual.with_columns([
         pl.col(flag_col).list.sort()
         for flag_col in flag_cols

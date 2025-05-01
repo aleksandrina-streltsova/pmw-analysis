@@ -1,23 +1,20 @@
 import logging
-import sys
 import pathlib
+import sys
 from typing import Dict
 
 import gpm
 import numpy as np
 import polars as pl
-import os
-
-from pandas.io.formats.format import return_docstring
-from tqdm import tqdm
 from gpm.bucket import LonLatPartitioning
 from gpm.bucket.io import get_bucket_spatial_partitioning
+from tqdm import tqdm
 
-from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_TIME, COLUMN_LON, COLUMN_LAT
-from pmw_analysis.preprocessing_polars import segment_features_into_bins, merge_segmented_features, _get_tc_columns, \
-    get_uncertainties_dict
+from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT
+from pmw_analysis.preprocessing_polars import get_uncertainties_dict, quantize_pmw_features, \
+    merge_quantized_pmw_features
 
-N_THREADS = 15
+N_THREADS = 6
 
 def segment(thread_id: int, path: pathlib.Path):
     with open(path / "factor", "r") as file:
@@ -36,6 +33,9 @@ def segment(thread_id: int, path: pathlib.Path):
             continue
 
         for idx_y, (y_bound_left, y_bound_right) in enumerate(zip(y_bounds, y_bounds[1:])):
+            if (path / f"{idx_x}_{idx_y}.parquet").exists():
+                continue
+
             extent = [x_bound_left, x_bound_right, y_bound_left, y_bound_right]
 
             df: pl.DataFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR,
@@ -46,7 +46,8 @@ def segment(thread_id: int, path: pathlib.Path):
                                                # n_rows=100_000_000, # for prototyping
                                                parallel="auto",  # "row_groups", "columns"
                                                )
-            df_result = segment_features_into_bins(df, factor)
+            df = PD_transform(df)
+            df_result = quantize_pmw_features(df, factor)
             df_result.write_parquet(path / f"{idx_x}_{idx_y}.parquet")
 
             logging.info(len(df) / len(df_result))
@@ -62,13 +63,13 @@ def merge(thread_id: int, path: pathlib.Path):
     batch_size = len(x_bounds) // N_THREADS
     for idx_x in tqdm(range(thread_id * batch_size, (thread_id + 1) * batch_size)):
         dfs = []
-        for idx_y in range(len(y_bounds)):
+        for idx_y in range(len(y_bounds) - 1):
             df = pl.read_parquet(path / f"{idx_x}_{idx_y}.parquet")
             dfs.append(df)
-        df_merged = merge_segmented_features(dfs)
+        df_merged = merge_quantized_pmw_features(dfs)
         dfs_merged.append(df_merged)
 
-    df_merged = merge_segmented_features(dfs_merged)
+    df_merged = merge_quantized_pmw_features(dfs_merged)
     df_merged.write_parquet(path / f"/{thread_id}.parquet")
 
 
@@ -77,7 +78,7 @@ def merge_final(path: pathlib.Path):
     for idx in range(N_THREADS):
         df = pl.read_parquet(path / f"{idx}.parquet")
         dfs.append(df)
-    df_final = merge_segmented_features(dfs)
+    df_final = merge_quantized_pmw_features(dfs)
     df_final.write_parquet(path / "final.parquet")
 
 

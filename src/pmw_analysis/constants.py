@@ -21,8 +21,8 @@ DIM_PMW = "pmw_frequency"
 SAVEFIG_FLAG = True
 
 SAVEFIG_DIR = "images"
-BUCKET_DIR = "/t5500/ltenas8/data/GPM_Buckets/GMI"
-PMW_ANALYSIS_DIR = "/t5500/ltenas8/data/PMW_Analysis"
+BUCKET_DIR = "/ltenas8/data/GPM_Buckets/GMI"
+PMW_ANALYSIS_DIR = "/ltenas8/data/PMW_Analysis"
 
 PRODUCT_1C_GMI_R = "1C-GMI-R"
 PRODUCT_2A_GMI = "2A-GMI"
