@@ -8,7 +8,8 @@ import matplotlib.colors as mcolors
 from matplotlib.colors import LogNorm
 from tqdm import tqdm
 
-from pmw_analysis.constants import PMW_ANALYSIS_DIR, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, STRUCT_FIELD_COUNT
+from pmw_analysis.constants import PMW_ANALYSIS_DIR, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, STRUCT_FIELD_COUNT, \
+    TC_COLUMNS, ST_COLUMNS
 from pmw_analysis.preprocessing_polars import filter_surface_type
 from pmw_analysis.utils.pyplot import get_surface_type_cmap
 
@@ -49,11 +50,10 @@ def get_diag_histogram(df_counts, col) -> pl.DataFrame:
     return diag_df
 
 df_merged = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "merged" / "final.parquet")
-tc_cols = ['Tc_10H','Tc_10V','Tc_19H','Tc_19V','Tc_23V','Tc_37H','Tc_37V','Tc_89H','Tc_89V','Tc_165H','Tc_165V','Tc_183V3','Tc_183V7']
-df = df_merged[tc_cols + ["surfaceTypeIndex", "count"]]
+df = df_merged[TC_COLUMNS + ["surfaceTypeIndex", "count"]]
 
 # cast Tc values to pl.Enum for faster processing
-for col in tc_cols:
+for col in TC_COLUMNS:
     unique_count = df.n_unique(col)
 
     # enum_type = pl.Enum(_sorted_not_null_unique_values(df, col).round().cast(pl.UInt16).cast(pl.Utf8))
@@ -63,7 +63,7 @@ for col in tc_cols:
     assert unique_count == df.n_unique(col)
 _sorted_not_null_unique_values(df, "Tc_10H")
 
-for tc_col in tc_cols:
+for tc_col in TC_COLUMNS:
     value_count = df[[tc_col, COLUMN_COUNT]].group_by(tc_col).sum()
     null_count = value_count.filter(pl.col(tc_col).is_null())[COLUMN_COUNT][0]
     print(f"{tc_col} has {len(value_count.filter(pl.col(tc_col).is_not_null()))} unique non-null values.")
@@ -80,27 +80,7 @@ def set_yticks(ax, y_ticks, col):
     ax.set_yticklabels(y_ticks, rotation="horizontal", fontsize=5)
     ax.set_ylabel(col, fontsize=15)
 
-
-surface_types = ['Ocean',
-                'Sea-Ice',
-                'High vegetation',
-                'Medium vegetation',
-                'Low vegetation',
-                'Sparse vegetation',
-                'Desert',
-                'Elevated snow cover',
-                'High snow cover',
-                'Moderate snow cover',
-                'Light snow cover',
-                'Standing Water',
-                'Ocean or water Coast',
-                'Mixed land/ocean or water coast',
-                'Land coast',
-                'Sea-ice edge',
-                'Mountain rain',
-                'Mountain snow']
-
-cmap_st, _ = get_surface_type_cmap(['NaN'] + surface_types)
+cmap_st, _ = get_surface_type_cmap(['NaN'] + ST_COLUMNS)
 
 k = 13
 
@@ -108,7 +88,7 @@ vmin = None
 vmax = None
 norm = None
 
-for idx_st, surface_type in tqdm(enumerate([None])):# + surface_types):
+for idx_st, surface_type in tqdm(enumerate([None])):# + ST_COLUMNS):
     fig, axes = plt.subplots(k, k, figsize=(20, 20))
     df_to_use = df
     if surface_type is None:
@@ -117,13 +97,13 @@ for idx_st, surface_type in tqdm(enumerate([None])):# + surface_types):
     else:
         flag_value = idx_st
 
-        df_to_use = df_to_use[tc_cols + [VARIABLE_SURFACE_TYPE_INDEX]]
+        df_to_use = df_to_use[TC_COLUMNS + [VARIABLE_SURFACE_TYPE_INDEX]]
         df_to_use = filter_surface_type(df_to_use, flag_value)
 
         cmap = mcolors.LinearSegmentedColormap.from_list("custom_cmap", ["white", (cmap_st.colors[flag_value])])
 
-    for idx1, tc_col1 in tqdm(enumerate(tc_cols[:k])):
-        for idx2, tc_col2 in enumerate(tc_cols[:idx1 + 1]):
+    for idx1, tc_col1 in tqdm(enumerate(TC_COLUMNS[:k])):
+        for idx2, tc_col2 in enumerate(TC_COLUMNS[:idx1 + 1]):
             if idx1 == idx2:
                 cols = [tc_col1]
             else:

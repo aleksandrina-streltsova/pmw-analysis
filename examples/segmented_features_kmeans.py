@@ -1,34 +1,61 @@
-import polars as pl
+import argparse
 import pathlib
-import matplotlib.pyplot as plt
 
+import polars as pl
 from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-from pmw_analysis.constants import PMW_ANALYSIS_DIR, COLUMN_COUNT
+from pmw_analysis.constants import COLUMN_COUNT, TC_COLUMNS
 from pmw_analysis.decomposition import WPCA
+from pmw_analysis.utils.pyplot import plot_histograms2d
 
-SUFFIX = ""
+N_BINS = 200
 
-df_merged: pl.DataFrame = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "merged" / "final.parquet")
+def kmeans(df_path: pathlib.Path, use_weights: bool):
+    df_merged: pl.DataFrame = pl.read_parquet(df_path)
 
-tc_cols = ['Tc_10H','Tc_10V','Tc_19H','Tc_19V','Tc_23V','Tc_37H','Tc_37V','Tc_89H','Tc_89V','Tc_165H','Tc_165V','Tc_183V3','Tc_183V7']
-df = df_merged[tc_cols + [COLUMN_COUNT]]
-df = df.drop_nans()
+    df = df_merged[TC_COLUMNS + [COLUMN_COUNT]]
+    df = df.drop_nans()
 
-df = df[:100000]
+    weight = df[COLUMN_COUNT] if use_weights else pl.ones(len(df), eager=True)
+    features = df[TC_COLUMNS]
 
-weight = df[COLUMN_COUNT]
-features = df[tc_cols]
+    fs_scaled = StandardScaler().fit_transform(features, sample_weight=weight)
 
-fs_scaled = StandardScaler().fit_transform(features, sample_weight=weight)
+    n_clusters = 3
 
-kmeans = KMeans(n_clusters=3)
-labels = kmeans.fit_predict(fs_scaled)
+    kmeans = KMeans(n_clusters=n_clusters)
+    labels = kmeans.fit_predict(fs_scaled)
 
-wpca = WPCA(n_components=2)
-fs_wpca_reduced = wpca.fit_transform(fs_scaled, sample_weight=weight.to_numpy())
+    if use_weights:
+        wpca = WPCA(n_components=2)
+        fs_reduced = wpca.fit_transform(fs_scaled, sample_weight=weight.to_numpy())
+    else:
+        pca = PCA(n_components=2)
+        fs_reduced = pca.fit_transform(fs_scaled)
 
-plt.scatter(fs_wpca_reduced[:, 0], fs_wpca_reduced[:, 1], c=labels)
-plt.show()
+    datas = [fs_reduced[labels == cluster] for cluster in range(n_clusters)]
+    weights = [df[COLUMN_COUNT].filter(labels == cluster) for cluster in range(n_clusters)]
+    titles = [f"Cluster {cluster}" for cluster in range(n_clusters)]
 
+    dir_path = pathlib.Path("images") / df_path.parent.name
+    dir_path.mkdir(parents=True, exist_ok=True)
+    file_path = dir_path / f"kmeans_log{"_w" if use_weights else ""}.png"
+
+    plot_histograms2d(datas, weights, titles, file_path, bins=N_BINS, use_log_norm=True, alpha=0.5)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run KMeans++ on data and plot results using PCA for visualization")
+
+    parser.add_argument("-w", action="store_true", help="Use weighted PCA")
+    parser.add_argument("file", help="Path to the data file")
+
+    args = parser.parse_args()
+
+    kmeans(pathlib.Path(args.file), args.w)
+
+
+if __name__ == "__main__":
+    main()

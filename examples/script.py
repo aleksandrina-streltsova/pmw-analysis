@@ -10,7 +10,7 @@ from gpm.bucket import LonLatPartitioning
 from gpm.bucket.io import get_bucket_spatial_partitioning
 from tqdm import tqdm
 
-from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT
+from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT, TC_COLUMNS
 from pmw_analysis.preprocessing_polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features
 
@@ -105,13 +105,12 @@ def get_uncertainty_factor(path: pathlib.Path):
     p: LonLatPartitioning = get_bucket_spatial_partitioning(BUCKET_DIR)
     x_bounds = p.x_bounds
     y_bounds = list(filter(lambda b: abs(b) <= 70, p.y_bounds))
-    tc_cols = ['Tc_10H', 'Tc_10V', 'Tc_19H', 'Tc_19V', 'Tc_23V', 'Tc_37H', 'Tc_37V', 'Tc_89H', 'Tc_89V', 'Tc_165H',
-               'Tc_165V', 'Tc_183V3', 'Tc_183V7']
+
     dfs = []
     for idx_x, idx_y in zip(np.random.choice(np.arange(len(x_bounds) - 1), 5), np.random.choice(np.arange(len(y_bounds) - 1), 5)):
         extent = [x_bounds[idx_x], x_bounds[idx_x + 1], y_bounds[idx_y], y_bounds[idx_y + 1]]
         df: pl.DataFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR,
-                                           columns=tc_cols + [COLUMN_LON, COLUMN_LAT],
+                                           columns=TC_COLUMNS + [COLUMN_LON, COLUMN_LAT],
                                            use_pyarrow=False,  # use rust parquet reader
                                            extent=extent,
                                            parallel="auto",  # "row_groups", "columns"
@@ -119,18 +118,18 @@ def get_uncertainty_factor(path: pathlib.Path):
         dfs.append(df)
     df = pl.concat(dfs)
 
-    unc_dict = get_uncertainties_dict(tc_cols)
+    unc_dict = get_uncertainties_dict(TC_COLUMNS)
 
     df_transformed = PD_transform(df)
     unc_dict_transformed = PD_transform(unc_dict)
 
-    before = np.zeros(len(tc_cols))
-    after = np.zeros(len(tc_cols))
-    for i, col in enumerate(tc_cols):
+    before = np.zeros(len(TC_COLUMNS))
+    after = np.zeros(len(TC_COLUMNS))
+    for i, col in enumerate(TC_COLUMNS):
         before[i] = (df[col].max() - df[col].min()) / (10 * unc_dict[col])
         after[i] = (df_transformed[col].max() - df_transformed[col].min()) / unc_dict_transformed[col]
 
-    factor =  np.power((after / before).prod(), 1 / len(tc_cols))
+    factor =  np.power((after / before).prod(), 1 / len(TC_COLUMNS))
 
     with open(path / "factor", "w") as file:
         file.write(str(factor))

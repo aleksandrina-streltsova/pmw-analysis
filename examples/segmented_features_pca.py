@@ -1,129 +1,94 @@
+import argparse
 import pathlib
 
+import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import seaborn as sns
-
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
-from pmw_analysis.constants import PMW_ANALYSIS_DIR, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, STRUCT_FIELD_COUNT
+from pmw_analysis.constants import COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, TC_COLUMNS, ST_COLUMNS
 from pmw_analysis.decomposition import WPCA
 from pmw_analysis.preprocessing_polars import filter_surface_type
-from pmw_analysis.utils.pyplot import get_surface_type_cmap
+from pmw_analysis.utils.pyplot import get_surface_type_cmap, plot_histograms2d
 
-def plot_histogram2d(data, ax, vmin=None, vmax=None, cmap="rocket_r", norm=None, alpha=1.0, bins=200, title=None):
-    hist = np.histogram2d(data[:, 0], data[:, 1], bins=bins)[0]
-    sns.heatmap(hist, vmin=vmin, vmax=vmax, cmap=cmap, norm=norm, annot=False, ax=ax, alpha=alpha, cbar=False)
-    ax.set_title(title)
+N_BINS = 200
 
-SUFFIX = ""
+def pca(df_path: pathlib.Path, use_weights: bool, use_log_norm: bool):
+    df_merged: pl.DataFrame = pl.read_parquet(df_path)
 
-df_merged: pl.DataFrame = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "merged" / "final.parquet")
+    df_count = df_merged[COLUMN_COUNT].log()
+    hist: pl.DataFrame = df_count.hist(bin_count=50)
 
-# 0. Plot histogram of counts.
-df_count = df_merged[COLUMN_COUNT].log()
-hist: pl.DataFrame = df_count.hist(bin_count=50)
+    plt.stairs(hist["count"][1:], np.exp(hist["breakpoint"]), fill=True)
+    plt.xscale("log")
+    plt.show()
 
-plt.stairs(hist["count"][1:], np.exp(hist["breakpoint"]), fill=True)
-plt.xscale("log")
-plt.show()
+    df = df_merged[TC_COLUMNS + [VARIABLE_SURFACE_TYPE_INDEX, COLUMN_COUNT]]
+    # TODO: should we process NaNs differently?
+    df = df.drop_nans()
 
-tc_cols = ['Tc_10H','Tc_10V','Tc_19H','Tc_19V','Tc_23V','Tc_37H','Tc_37V','Tc_89H','Tc_89V','Tc_165H','Tc_165V','Tc_183V3','Tc_183V7']
+    weight = df[COLUMN_COUNT] if use_weights else pl.ones(len(df), eager=True)
+    features = df[TC_COLUMNS]
 
-df = df_merged[tc_cols + [VARIABLE_SURFACE_TYPE_INDEX, COLUMN_COUNT]]
-df = df
-# TODO: should we process NaNs differently?
-df = df.drop_nans()
+    scaler = StandardScaler()
+    fs_scaled = scaler.fit_transform(features, sample_weight=weight)
+    if use_weights:
+        pca = WPCA(n_components=2)
+        fs_reduced = pca.fit_transform(fs_scaled, sample_weight=weight.to_numpy())
+    else:
+        pca = PCA(n_components=2)
+        fs_reduced = pca.fit_transform(fs_scaled)
 
-# Fit PCA and WPCA on all points.
-fig_count, axes_count = plt.subplots(nrows=1, ncols=2, figsize=(10, 4))
+    dir_path = pathlib.Path("images") / df_path.parent.name
+    dir_path.mkdir(parents=True, exist_ok=True)
+    file_path = dir_path / f"pca{"_log" if use_log_norm else ""}{"_w" if use_weights else ""}.png"
+    file_path_count = dir_path / f"pca_count{"_log" if use_log_norm else ""}{"_w" if use_weights else ""}.png"
 
-weight = df[COLUMN_COUNT]
-features = df[tc_cols]
+    plot_histograms2d([fs_reduced], [df[COLUMN_COUNT]], ["All surfaces"], file_path_count,
+                      bins=N_BINS, cmaps=["rocket_r"], use_log_norm=use_log_norm)
 
-# PCA
-scaler = StandardScaler()
-fs_scaled = scaler.fit_transform(features)
-pca = PCA(n_components=2, svd_solver="covariance_eigh")
-fs_pca_reduced = pca.fit_transform(fs_scaled)
+    cmap_st, _ = get_surface_type_cmap(['NaN'] + ST_COLUMNS)
 
-# WPCA
-weighted_scaler = StandardScaler()
-fs_weighted_scaled = weighted_scaler.fit_transform(features, sample_weight=weight)
-wpca = WPCA(n_components=2)
-fs_wpca_reduced = wpca.fit_transform(fs_weighted_scaled, sample_weight=weight.to_numpy())
+    datas = []
+    weights = []
+    counts = np.zeros(len(ST_COLUMNS))
 
-plot_histogram2d(fs_pca_reduced, axes_count[0])
-plot_histogram2d(fs_wpca_reduced, axes_count[1])
-axes_count[0].invert_xaxis()
+    for idx_st in tqdm(range(len(ST_COLUMNS))):
+        flag_value = idx_st + 1
 
-surface_types = ['Ocean',
-                'Sea-Ice',
-                'High vegetation',
-                'Medium vegetation',
-                'Low vegetation',
-                'Sparse vegetation',
-                'Desert',
-                'Elevated snow cover',
-                'High snow cover',
-                'Moderate snow cover',
-                'Light snow cover',
-                'Standing Water',
-                'Ocean or water Coast',
-                'Mixed land/ocean or water coast',
-                'Land coast',
-                'Sea-ice edge',
-                'Mountain rain',
-                'Mountain snow']
+        df_to_use = filter_surface_type(df, flag_value)
+        df_to_use = df_to_use.filter(df_to_use[COLUMN_COUNT].is_not_null())
 
-cmap_st, _ = get_surface_type_cmap(['NaN'] + surface_types)
+        features = df_to_use[TC_COLUMNS]
+        fs_reduced = pca.transform(scaler.transform(features))
 
-vmin = None
-vmax = None
-norm = None
+        counts[idx_st] = df_to_use[COLUMN_COUNT].cast(pl.Int64).sum()
 
-count_all = df[COLUMN_COUNT].cast(pl.Int64).sum()
-counts = np.array([filter_surface_type(df, idx + 1)[COLUMN_COUNT].cast(pl.Int64).sum() for idx, st in enumerate(surface_types)])
-alphas = counts / counts.sum()
-alphas = alphas * 0.8 / alphas.max()
+        datas.append(fs_reduced)
+        weights.append(df_to_use[COLUMN_COUNT])
 
-ncols = 6
-nrows = (len(surface_types) + ncols - 1) // ncols
+    colors = [cmap_st.colors[idx_st + 1] for idx_st in range(len(ST_COLUMNS))]
+    alphas = np.log(counts)
+    alphas = alphas * 0.8 / alphas.max()
+    titles = ST_COLUMNS
 
-fig_st, axes_st = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4 * ncols, 4 * nrows))
-fig_st_combined, axes_st_combined = plt.subplots(nrows=1, ncols=2, figsize=(10, 4))
+    plot_histograms2d(datas, weights, titles, file_path,
+                      colors=colors, bins=N_BINS, use_log_norm=use_log_norm, alpha=alphas)
 
-for idx_st, surface_type in tqdm(enumerate(surface_types)):
-    flag_value = idx_st + 1
-    cmap = mcolors.LinearSegmentedColormap.from_list("custom_cmap", ["white", (cmap_st.colors[flag_value])])
 
-    df_to_use = filter_surface_type(df, flag_value)
-    df_to_use = df_to_use.filter(df_to_use[COLUMN_COUNT].is_not_null())
+def main():
+    parser = argparse.ArgumentParser(description="Run KMeans++ on data and plot results using PCA for visualization")
 
-    weight = df_to_use[COLUMN_COUNT]
-    features = df_to_use[tc_cols]
+    parser.add_argument("-w", action="store_true", help="Use weighted PCA")
+    parser.add_argument("-l", action="store_true", help="Use Log Norm for visualization")
+    parser.add_argument("file", help="Path to the data file")
 
-    fs_pca_reduced = pca.transform(scaler.transform(features))
-    fs_wpca_reduced = wpca.transform(weighted_scaler.transform(features))
+    args = parser.parse_args()
 
-    # plot separate
-    plot_histogram2d(fs_wpca_reduced, axes_st[idx_st // ncols][idx_st % ncols], vmin, vmax, cmap, norm, title=surface_type)
+    pca(pathlib.Path(args.file), args.w, args.l)
 
-    # plot combined
-    plot_histogram2d(fs_pca_reduced, axes_st_combined[0], vmin, vmax, cmap, norm, alphas[idx_st])
-    plot_histogram2d(fs_wpca_reduced, axes_st_combined[1], vmin, vmax, cmap, norm, alphas[idx_st])
-    axes_st_combined[0].invert_xaxis()
 
-fig_st.tight_layout()
-
-fig_count.savefig(pathlib.Path("images") / "pca" / f"count{SUFFIX}.png")
-fig_st_combined.savefig(pathlib.Path("images") / "pca" / f"st_combined{SUFFIX}.png")
-fig_st.savefig(pathlib.Path("images") / "pca" / f"st{SUFFIX}.png")
-
-fig_count.show()
-fig_st_combined.show()
-fig_st.show()
+if __name__ == "__main__":
+    main()

@@ -34,3 +34,30 @@ VARIABLE_SURFACE_TYPE_INDEX = "surfaceTypeIndex"
 VERSION = 7
 
 STORAGE_GES_DISC = "GES_DISC"
+
+TC_COLUMNS = ["Tc_10H", "Tc_10V",
+              "Tc_19H", "Tc_19V",
+              "Tc_23V",
+              "Tc_37H", "Tc_37V",
+              "Tc_89H", "Tc_89V",
+              "Tc_165H", "Tc_165V",
+              "Tc_183V3", "Tc_183V7"]
+
+ST_COLUMNS = ['Ocean',
+              'Sea-Ice',
+              'High vegetation',
+              'Medium vegetation',
+              'Low vegetation',
+              'Sparse vegetation',
+              'Desert',
+              'Elevated snow cover',
+              'High snow cover',
+              'Moderate snow cover',
+              'Light snow cover',
+              'Standing Water',
+              'Ocean or water Coast',
+              'Mixed land/ocean or water coast',
+              'Land coast',
+              'Sea-ice edge',
+              'Mountain rain',
+              'Mountain snow']
