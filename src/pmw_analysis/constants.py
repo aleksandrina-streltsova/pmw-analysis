@@ -3,7 +3,7 @@ This module contains constants used throughout the project.
 """
 
 COLUMN_COUNT = "count"
-COLUMN_FIRST_OCCURRENCE = "first_occurrence"
+COLUMN_OCCURRENCE = "occurrence"
 COLUMN_TIME = "time"
 COLUMN_TIME_FRACTION = "time_fraction"
 COLUMN_SUFFIX_DOMINANT_CYCLE = "_dominant_cycle"

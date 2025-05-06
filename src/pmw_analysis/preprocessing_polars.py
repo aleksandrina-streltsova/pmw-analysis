@@ -5,8 +5,8 @@ import pandas as pd
 import polars as pl
 from tqdm import tqdm
 
-from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX
-from pmw_analysis.utils.performance import get_memory_usage
+from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, \
+    COLUMN_LON, COLUMN_LAT, COLUMN_OCCURRENCE
 
 
 #### COLUMNS ####
@@ -173,8 +173,6 @@ def _aggregate(df: pl.DataFrame,
     estimated_size = df.estimated_size() / (1024 * 1024)
     logging.info(f"Estimated dataframe size: {estimated_size:.2f} MB")
 
-    memory_usage_before = get_memory_usage()
-
     df_result = (
         df
         .group_by(quant_columns)
@@ -208,9 +206,6 @@ def _aggregate(df: pl.DataFrame,
         )
     )
 
-    memory_usage_after = get_memory_usage()
-    logging.info(f"Memory used by aggregation: {memory_usage_after - memory_usage_before:.2f} MB")
-
     assert df_result[COLUMN_COUNT].sum() == df.shape[0]
     return df_result
 
@@ -231,7 +226,16 @@ def quantize_pmw_features(df: pl.DataFrame, factor: float = 10):
         pl.col(COLUMN_TIME).dt.ordinal_day().alias("day")
     )
 
-    # 3. Quantize Tc columns and group duplicate signatures.
+    # 3. Create a column with occurrence info (`time`, `lat`, and `lon`).
+    df = df.with_columns(
+        (pl.col(COLUMN_TIME).cast(str) + "|" +
+         pl.col(COLUMN_LON).round(1).cast(str) + "|" +
+         pl.col(COLUMN_LAT).round(1).cast(str)).alias(COLUMN_OCCURRENCE)
+    )
+    # 3.5 Remove `time` column, since we have `sunLocalTime`, `day`, and `occurrence` columns now.
+    df.drop_in_place(COLUMN_TIME)
+
+    # 4. Quantize Tc columns and group duplicate signatures.
     tc_cols = _get_tc_columns(df.columns)
     unc_dict = get_uncertainties_dict(tc_cols)
     quant_steps = [factor * unc_dict[tc_col] for tc_col in tc_cols]
@@ -240,6 +244,12 @@ def quantize_pmw_features(df: pl.DataFrame, factor: float = 10):
         df,
         quant_columns=tc_cols,
         quant_steps=quant_steps,
+        flag_columns=_get_flag_columns(columns),
+        periodic_columns=_get_periodic_columns(columns),
+        special_columns=_get_special_columns(columns),
+        agg_min_columns=[COLUMN_OCCURRENCE],
+        periodic_dict=_get_periodic_dict(),
+        special_dict=_get_special_dict(),
     )
 
     return df
@@ -356,7 +366,7 @@ def merge_quantized_pmw_features(dfs: Iterable[pl.DataFrame]) -> pl.DataFrame:
         flag_columns=_get_flag_columns(columns),
         periodic_columns=_get_periodic_columns(columns),
         special_columns=_get_special_columns(columns),
-        agg_min_columns=[COLUMN_TIME]
+        agg_min_columns=[COLUMN_OCCURRENCE]
     )
 
 
@@ -388,8 +398,6 @@ def merge_quantized_features(dfs: Iterable[pl.DataFrame],
     estimated_size = df.estimated_size() / (1024 * 1024)
     logging.info(f"Estimated dataframe size: {estimated_size:.2f} MB")
 
-    memory_usage_before = get_memory_usage()
-
     df_result = (
         df
         .group_by(quant_columns)
@@ -412,9 +420,6 @@ def merge_quantized_features(dfs: Iterable[pl.DataFrame],
              pl.col(COLUMN_COUNT).sum(),
              )
     )
-
-    memory_usage_after = get_memory_usage()
-    logging.info(f"Memory used by aggregation: {memory_usage_after - memory_usage_before:.2f} MB")
 
     for flag_col in tqdm(flag_columns):
         df_result = _aggregate_structs(df_result, flag_col)
