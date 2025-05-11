@@ -6,7 +6,7 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-from pmw_analysis.constants import COLUMN_COUNT, TC_COLUMNS
+from pmw_analysis.constants import COLUMN_COUNT, TC_COLUMNS, PMW_ANALYSIS_DIR
 from pmw_analysis.decomposition import WPCA
 from pmw_analysis.utils.pyplot import plot_histograms2d
 
@@ -50,11 +50,12 @@ def main():
     parser = argparse.ArgumentParser(description="Run KMeans++ on data and plot results using PCA for visualization")
 
     parser.add_argument("-w", action="store_true", help="Use weighted PCA")
-    parser.add_argument("file", help="Path to the data file")
+    parser.add_argument("--transform", "-t", default="default", choices=["default", "pd", "ratio"],
+                        help="Type of transformation performed on data")
 
     args = parser.parse_args()
-
-    kmeans(pathlib.Path(args.file), args.w)
+    path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / "final.parquet"
+    kmeans(path, args.w)
 
 
 if __name__ == "__main__":

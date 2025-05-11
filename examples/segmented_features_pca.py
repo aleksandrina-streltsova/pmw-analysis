@@ -8,7 +8,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
-from pmw_analysis.constants import COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, TC_COLUMNS, ST_COLUMNS
+from pmw_analysis.constants import COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, TC_COLUMNS, ST_COLUMNS, PMW_ANALYSIS_DIR
 from pmw_analysis.decomposition import WPCA
 from pmw_analysis.preprocessing_polars import filter_surface_type
 from pmw_analysis.utils.pyplot import get_surface_type_cmap, plot_histograms2d
@@ -83,11 +83,13 @@ def main():
 
     parser.add_argument("-w", action="store_true", help="Use weighted PCA")
     parser.add_argument("-l", action="store_true", help="Use Log Norm for visualization")
-    parser.add_argument("file", help="Path to the data file")
+    parser.add_argument("--transform", "-t", default="default", choices=["default", "pd", "ratio"],
+                        help="Type of transformation performed on data")
 
     args = parser.parse_args()
+    path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / "final.parquet"
 
-    pca(pathlib.Path(args.file), args.w, args.l)
+    pca(path, args.w, args.l)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 #!/bin/bash
-python3 examples/script.py factor pd
-seq 0 5 | xargs -n 1 -P 6 python3 examples/script.py partial pd
-python3 examples/script.py final pd
+python3 examples/segmented_features_analysis.py -t pd
+python3 examples/segmented_features_analysis.py -t pd -v Tc_183V7
+python3 examples/segmented_features_analysis.py -t ratio
+python3 examples/segmented_features_analysis.py -t ratio -v Tc_183V7

@@ -3,12 +3,18 @@ This module contains constants used throughout the project.
 """
 
 COLUMN_COUNT = "count"
-COLUMN_FIRST_OCCURRENCE = "first_occurrence"
+COLUMN_ACCUM_UNIQUE = "accum_unique"
+COLUMN_ACCUM_ALL = "accum_all"
+COLUMN_OCCURRENCE = "occurrence"
 COLUMN_TIME = "time"
 COLUMN_TIME_FRACTION = "time_fraction"
 COLUMN_SUFFIX_DOMINANT_CYCLE = "_dominant_cycle"
 COLUMN_LON = "lon"
 COLUMN_LAT = "lat"
+
+COLUMN_OCCURRENCE_TIME = f"occurrence_{COLUMN_TIME}"
+COLUMN_OCCURRENCE_LON = f"occurrence_{COLUMN_LON}"
+COLUMN_OCCURRENCE_LAT = f"occurrence_{COLUMN_LAT}"
 
 STRUCT_FIELD_COUNT = "struct_count"
 
