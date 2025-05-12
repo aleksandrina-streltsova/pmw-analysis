@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Tuple, Iterable
+from typing import Dict, Tuple, Iterable, List
 
 import pandas as pd
 import polars as pl
@@ -433,10 +433,15 @@ def merge_quantized_features(dfs: Iterable[pl.DataFrame],
     return df_result
 
 
-def filter_surface_type(df, flag_value) -> pl.DataFrame:
+def filter_surface_type(df, flag_value: int | List[int]) -> pl.DataFrame:
+    if isinstance(flag_value, int):
+        flag_values = [flag_value]
+    else:
+        flag_values = set(flag_value)
+
     return df.with_columns(
         pl.col(VARIABLE_SURFACE_TYPE_INDEX).list.eval(
-            pl.element().filter(pl.element().struct.field(VARIABLE_SURFACE_TYPE_INDEX) == flag_value)
+            pl.element().filter(pl.element().struct.field(VARIABLE_SURFACE_TYPE_INDEX).is_in(flag_values))
         ).list.first().struct.field(STRUCT_FIELD_COUNT).alias(COLUMN_COUNT)
     )
 
