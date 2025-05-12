@@ -67,3 +67,13 @@ ST_COLUMNS = ['Ocean',
               'Sea-ice edge',
               'Mountain rain',
               'Mountain snow']
+
+ST_GROUP_OCEAN = ["Ocean"]
+ST_GROUP_VEGETATION = ['High vegetation',
+                       'Medium vegetation',
+                       'Low vegetation',
+                       'Mountain rain']
+ST_GROUP_SNOW = ['Elevated snow cover',
+                 'High snow cover',
+                 'Moderate snow cover',
+                 'Mountain snow']
