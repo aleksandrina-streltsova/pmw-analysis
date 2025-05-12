@@ -6,7 +6,8 @@ import polars as pl
 from tqdm import tqdm
 
 from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, \
-    COLUMN_LON, COLUMN_LAT, COLUMN_OCCURRENCE, COLUMN_OCCURRENCE_TIME, COLUMN_OCCURRENCE_LON, COLUMN_OCCURRENCE_LAT
+    COLUMN_LON, COLUMN_LAT, COLUMN_OCCURRENCE, COLUMN_OCCURRENCE_TIME, COLUMN_OCCURRENCE_LON, COLUMN_OCCURRENCE_LAT, \
+    TC_COLUMNS
 
 
 #### COLUMNS ####
@@ -354,14 +355,16 @@ def _aggregate_structs(df: pl.DataFrame, flag_column: str) -> pl.DataFrame:
     return df_result
 
 
-def merge_quantized_pmw_features(dfs: Iterable[pl.DataFrame]) -> pl.DataFrame:
+def merge_quantized_pmw_features(dfs: Iterable[pl.DataFrame],
+                                 quant_columns: Iterable[str] = TC_COLUMNS,
+                                 ) -> pl.DataFrame:
     df = next(iter(dfs))
     columns = [col.removesuffix("_lt").removesuffix("_gt") for col in df.columns if
                not col.endswith("count") and not col.endswith("_gt")]
 
     return merge_quantized_features(
         dfs,
-        quant_columns=_get_tc_columns(columns),
+        quant_columns=quant_columns,
         flag_columns=_get_flag_columns(columns),
         periodic_columns=_get_periodic_columns(columns),
         special_columns=_get_special_columns(columns),
