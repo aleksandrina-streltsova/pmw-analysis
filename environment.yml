@@ -1,12 +1,13 @@
-name: gpm-dev-venv
+name: pmw-analysis-env
 channels:
+  - pytorch
   - conda-forge
 dependencies:
   - python>=3.10,<3.13  # 3.13 is only supported starting numpy 2.1 which is incompatible with umap<=0.5.7
   - xarray>=2025.01.0
   - numpy<2.0           # numpy>=2.0 is incompatible with umap<=0.5.7
   - umap-learn
-  - scikit-learn
+  - scikit-learn<1.5
   - seaborn
   - jupyter
   - polars
@@ -27,3 +28,9 @@ dependencies:
   - scipy
   - pycolorbar>=0.1.0
   - pylint
+  - gpm-api
+  - pytorch
+  - torchvision
+  - torchaudio
+  - cuda-version=12.1
+  - faiss-gpu=1.9.0=*cuda*
