@@ -7,7 +7,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 from pmw_analysis.constants import COLUMN_COUNT, TC_COLUMNS, PMW_ANALYSIS_DIR
-from pmw_analysis.decomposition import WPCA
+from pmw_analysis.copypaste.wpca import WPCA
 from pmw_analysis.utils.pyplot import plot_histograms2d
 
 N_BINS = 200

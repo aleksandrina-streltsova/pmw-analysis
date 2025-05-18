@@ -9,8 +9,8 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from pmw_analysis.constants import COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, TC_COLUMNS, ST_COLUMNS, PMW_ANALYSIS_DIR
-from pmw_analysis.decomposition import WPCA
-from pmw_analysis.preprocessing_polars import filter_surface_type
+from pmw_analysis.copypaste.wpca import WPCA
+from pmw_analysis.quantization.polars import filter_surface_type
 from pmw_analysis.utils.pyplot import get_surface_type_cmap, plot_histograms2d
 
 N_BINS = 200

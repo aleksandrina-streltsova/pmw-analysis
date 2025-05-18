@@ -15,7 +15,7 @@ from pmw_analysis.constants import (
     BUCKET_DIR,
 )
 from pmw_analysis.cycle_detection import detect_cycle, plot_cycle, plot_periodogram
-from pmw_analysis.preprocessing_pandas import read_time_series_and_drop_nan
+from pmw_analysis.quantization.pandas import read_time_series_and_drop_nan
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_PD
 from pmw_analysis.utils.pandas import timestamp_to_fraction
 from pmw_analysis.utils.pyplot import scatter_na

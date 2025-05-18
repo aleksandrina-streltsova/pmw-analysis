@@ -11,7 +11,7 @@ from gpm.bucket.io import get_bucket_spatial_partitioning
 from tqdm import tqdm
 
 from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT, TC_COLUMNS
-from pmw_analysis.preprocessing_polars import get_uncertainties_dict, quantize_pmw_features, \
+from pmw_analysis.quantization.polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features, quantize_features
 from pmw_analysis.utils.logging import disable_logging, timing
 

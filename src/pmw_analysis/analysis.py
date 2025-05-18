@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import PMW_ANALYSIS_DIR, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, TC_COLUMNS, ST_COLUMNS, \
     COLUMN_ACCUM_UNIQUE, COLUMN_ACCUM_ALL, COLUMN_OCCURRENCE_TIME
-from pmw_analysis.preprocessing_polars import filter_surface_type, expand_occurrence_column
+from pmw_analysis.quantization.polars import filter_surface_type, expand_occurrence_column
 from pmw_analysis.utils.pyplot import get_surface_type_cmap
 
 

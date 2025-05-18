@@ -6,7 +6,7 @@ import numpy as np
 import polars as pl
 
 from pmw_analysis.constants import COLUMN_TIME, COLUMN_COUNT, STRUCT_FIELD_COUNT
-from pmw_analysis.preprocessing_polars import _round, _get_tc_columns, _get_flag_columns, _get_periodic_columns, \
+from pmw_analysis.quantization.polars import _round, _get_tc_columns, _get_flag_columns, _get_periodic_columns, \
     _get_special_columns, _get_special_dict, _aggregate, _get_periodic_dict, merge_quantized_pmw_features
 
 
