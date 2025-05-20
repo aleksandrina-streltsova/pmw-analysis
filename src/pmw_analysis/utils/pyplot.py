@@ -2,20 +2,22 @@
 This module provides utilities for plotting with `matplotlib.pyplot`.
 """
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import polars as pl
 import seaborn as sns
 
 
 def scatter_na(x, y, c, color_label: str = None):
     """
     Plot a scatter plot. Points corresponding to missing values in the `c` array will be plotted with red color,
-    while non-missing values are colorized based on `c`.
+    while non-missing values are colored based on `c`.
     """
     na_mask = pd.isna(c)
     vmin = np.percentile(c[~na_mask], 1)
@@ -70,36 +72,41 @@ def get_surface_type_cmap(surface_types: List[str]):
 
 
 def generate_colors(n: int, colormap: str = "tab10"):
+    """
+    Generate n colors from a colormap. By default, "tab10" colormap is used.
+    """
     cmap = plt.get_cmap(colormap)
     return [cmap(i / max(1, n - 1)) for i in range(n)]
 
 
-def plot_histogram2d(data, weight, ax, vmin=None, vmax=None, cmap="rocket_r", norm=None, alpha=1.0, bins=10, title=None,
-                     cbar=False):
-    hist, xedges, yedges = np.histogram2d(data[:, 0], data[:, 1], range=range, weights=weight, bins=bins)
-    sns.heatmap(hist, vmin=vmin, vmax=vmax, cmap=cmap, norm=norm, annot=False, ax=ax, alpha=alpha, cbar=cbar)
-    ax.set_title(title)
+@dataclass
+class HistogramData:
+    """
+    Represents a data structure for histogram configuration and data storage.
+    """
+    data: np.ndarray | pl.DataFrame | pd.DataFrame
+    weight: np.ndarray | pl.Series | pd.Series
+    title: str
+    alpha: float
+    cmap: str | mcolors.Colormap | None
+    color: str | None
 
 
-def plot_histograms2d(datas, weights, titles, path: Path, colors=None, cmaps=None, bins=10,
-                      use_log_norm=True, alpha: int | float | List = 1.0):
-    if cmaps is None:
-        if colors is None:
-            colors = generate_colors(len(datas))
-        cmaps = [mcolors.LinearSegmentedColormap.from_list("custom_cmap", ["white", c]) for c in colors]
+def plot_histograms2d(hist_datas: List[HistogramData], path: Path, bins: int = 10,
+                      use_log_norm=True, use_shared_norm=True):
+    """
+    Plot multiple 2D histograms from datasets and a combined visualization where
+    2D histograms are overlayed.
+    """
+    generated_colors = generate_colors(len(hist_datas))
 
-    xmin = np.inf
-    xmax = -np.inf
-    ymin = np.inf
-    ymax = -np.inf
+    for i, hist_data in enumerate(hist_datas):
+        if hist_data.cmap is None:
+            color = hist_data.color if hist_data.color is not None else generated_colors.pop()
+            cmap = mcolors.LinearSegmentedColormap.from_list("custom_cmap", ["white", color])
+            hist_data.cmap = cmap
 
-    for data in datas:
-        xmin = min(xmin, data[:, 0].min())
-        xmax = max(xmax, data[:, 0].max())
-        ymin = min(ymin, data[:, 1].min())
-        ymax = max(ymax, data[:, 1].max())
-
-    range = ((xmin, xmax), (ymin, ymax))
+    hist_range = _calculate_histogram_range(hist_datas)
 
     # Build ticks and labels
     n_ticks = min(bins, 10)
@@ -107,22 +114,25 @@ def plot_histograms2d(datas, weights, titles, path: Path, colors=None, cmaps=Non
     x_ticks = np.linspace(0, bins - 1, n_ticks)
     y_ticks = np.linspace(0, bins - 1, n_ticks)
 
-    x_tick_labels = np.round(np.linspace(xmin, xmax, n_ticks), 2)
-    y_tick_labels = np.round(np.linspace(ymin, ymax, n_ticks), 2)
+    x_tick_labels = np.round(np.linspace(hist_range[0][0], hist_range[0][1], n_ticks), 2)
+    y_tick_labels = np.round(np.linspace(hist_range[1][0], hist_range[1][1], n_ticks), 2)
 
     hists = []
 
-    for data, weight in zip(datas, weights):
-        hist = np.histogram2d(data[:, 0], data[:, 1], range=range, weights=weight, bins=bins)[0]
+    for hist_data in hist_datas:
+        hist = np.histogram2d(hist_data.data[:, 0], hist_data.data[:, 1],
+                              range=hist_range, weights=hist_data.weight, bins=bins)[0]
         hist = hist.T
         hists.append(hist)
 
     # Plot histograms separately
-    nrows = min(len(datas), 3)
-    ncols = (len(datas) + nrows - 1) // nrows
+    k = 3 if len(hist_datas) % 3 == 0 else 2
+
+    nrows = min(len(hist_datas), k)
+    ncols = (len(hist_datas) + nrows - 1) // nrows
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4 * ncols, 3 * nrows))
 
-    for i, hist in enumerate(hists):
+    for i, (hist_data, hist) in enumerate(zip(hist_datas, hists)):
         vmin = hist.min()
         vmax = hist.max()
 
@@ -140,16 +150,16 @@ def plot_histograms2d(datas, weights, titles, path: Path, colors=None, cmaps=Non
         else:
             ax: plt.Axes = axes[i // ncols][i % ncols]
 
-        sns.heatmap(hist, vmin=vmin, vmax=vmax, cmap=cmaps[i], norm=norm, annot=False, ax=ax)
+        sns.heatmap(hist, vmin=vmin, vmax=vmax, cmap=hist_data.cmap, norm=norm, annot=False, ax=ax)
         ax.set_xticks(x_ticks, x_tick_labels)
         ax.set_yticks(y_ticks, y_tick_labels)
-        ax.set_title(titles[i])
+        ax.set_title(hist_data.title)
 
     fig.tight_layout()
     fig.savefig(path)
     fig.show()
 
-    if len(datas) == 1:
+    if len(hist_datas) == 1:
         return
 
     # Plot histograms combined
@@ -160,24 +170,54 @@ def plot_histograms2d(datas, weights, titles, path: Path, colors=None, cmaps=Non
         vmin_combined = min(vmin_combined, hist.min())
         vmax_combined = max(vmax_combined, hist.max())
 
-    if use_log_norm:
-        vmin_combined = max(1, vmin_combined)
-        norm_combined = mcolors.LogNorm(vmin=1, vmax=vmax_combined)
-    else:
-        norm_combined = None
+    norm_combined = _get_norm(vmin_combined, vmax_combined, use_log_norm)
     fig_combined, ax_combined = plt.subplots(figsize=(8, 6))
 
-    for i, hist in enumerate(hists):
-        if isinstance(alpha, int) or isinstance(alpha, float):
-            a = alpha
-        else:
-            a = alpha[i]
-
+    for i, (hist_data, hist) in enumerate(zip(hist_datas, hists)):
         # plot histograms combined
-        sns.heatmap(hist, vmin=vmin_combined, vmax=vmax_combined, cmap=cmaps[i], norm=norm_combined,
-                    annot=False, ax=ax_combined, alpha=a, cbar=False)
+        norm = norm_combined if use_shared_norm else _get_norm(hist.min(), hist.max(), use_log_norm)
+        sns.heatmap(hist, cmap=hist_data.cmap, norm=norm, mask=hist==0,
+                    annot=False, ax=ax_combined, alpha=hist_data.alpha, cbar=False)
         ax_combined.set_xticks(x_ticks, x_tick_labels)
         ax_combined.set_yticks(y_ticks, y_tick_labels)
 
     fig_combined.savefig(path.parent / f"{path.stem}_combined.png")
     fig_combined.show()
+
+
+def finalize_axis(axes: plt.Axes,
+                  title: Optional[str],
+                  x_label: Optional[str],
+                  y_label: Optional[str],
+                  ):
+    """
+    Finalize plot by setting title and labels.
+    """
+    axes.set_title(title)
+    axes.set_xlabel(x_label)
+    axes.set_ylabel(y_label)
+    axes.legend()
+
+
+def _calculate_histogram_range(hist_datas: List[HistogramData]):
+    x_min = np.inf
+    x_max = -np.inf
+    y_min = np.inf
+    y_max = -np.inf
+
+    for hist_data in hist_datas:
+        x_min = min(x_min, hist_data.data[:, 0].min())
+        x_max = max(x_max, hist_data.data[:, 0].max())
+        y_min = min(y_min, hist_data.data[:, 1].min())
+        y_max = max(y_max, hist_data.data[:, 1].max())
+
+    return (x_min, x_max), (y_min, y_max)
+
+
+def _get_norm(vmin, vmax, use_log_norm):
+    if use_log_norm:
+        vmin = max(1, vmin)
+        norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
+    else:
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    return norm

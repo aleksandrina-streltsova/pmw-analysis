@@ -1,3 +1,6 @@
+"""
+Script for running PCA on quantized transformed data.
+"""
 import argparse
 import pathlib
 
@@ -11,11 +14,25 @@ from tqdm import tqdm
 from pmw_analysis.constants import COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, TC_COLUMNS, ST_COLUMNS, PMW_ANALYSIS_DIR
 from pmw_analysis.copypaste.wpca import WPCA
 from pmw_analysis.quantization.polars import filter_surface_type
-from pmw_analysis.utils.pyplot import get_surface_type_cmap, plot_histograms2d
+from pmw_analysis.utils.pyplot import get_surface_type_cmap, plot_histograms2d, HistogramData
 
 N_BINS = 200
 
+
 def pca(df_path: pathlib.Path, use_weights: bool, use_log_norm: bool):
+    """
+    Perform PCA on the specified dataset and
+    plot the first two principal components of features for each surface type.
+
+    Parameters
+    ----------
+    df_path : pathlib.Path
+        The path to the input parquet file containing the dataset to process.
+    use_weights: bool
+         If True, point counts are used to weigh points when running KMeans++ and PCA.
+    use_log_norm: bool
+         If True, principal components are colored with logarithmic colormap normalization.
+    """
     df_merged: pl.DataFrame = pl.read_parquet(df_path)
 
     df_count = df_merged[COLUMN_COUNT].log()
@@ -34,25 +51,21 @@ def pca(df_path: pathlib.Path, use_weights: bool, use_log_norm: bool):
 
     scaler = StandardScaler()
     fs_scaled = scaler.fit_transform(features, sample_weight=weight)
-    if use_weights:
-        pca = WPCA(n_components=2)
-        fs_reduced = pca.fit_transform(fs_scaled, sample_weight=weight.to_numpy())
-    else:
-        pca = PCA(n_components=2)
-        fs_reduced = pca.fit_transform(fs_scaled)
+    fs_reduced, reducer = pca_fit_transform(fs_scaled, weight if use_weights else None)
 
     dir_path = pathlib.Path("images") / df_path.parent.name
     dir_path.mkdir(parents=True, exist_ok=True)
     file_path = dir_path / f"pca{"_log" if use_log_norm else ""}{"_w" if use_weights else ""}.png"
     file_path_count = dir_path / f"pca_count{"_log" if use_log_norm else ""}{"_w" if use_weights else ""}.png"
 
-    plot_histograms2d([fs_reduced], [df[COLUMN_COUNT]], ["All surfaces"], file_path_count,
-                      bins=N_BINS, cmaps=["rocket_r"], use_log_norm=use_log_norm)
+    hist_data = HistogramData(data=df[TC_COLUMNS], weight=df[COLUMN_COUNT], title="All surfaces", alpha=1.0,
+                              cmap = "rocket_r", color=None)
+
+    plot_histograms2d([hist_data], file_path_count, bins=N_BINS, use_log_norm=use_log_norm)
 
     cmap_st, _ = get_surface_type_cmap(['NaN'] + ST_COLUMNS)
 
-    datas = []
-    weights = []
+    hist_datas = []
     counts = np.zeros(len(ST_COLUMNS))
 
     for idx_st in tqdm(range(len(ST_COLUMNS))):
@@ -62,20 +75,32 @@ def pca(df_path: pathlib.Path, use_weights: bool, use_log_norm: bool):
         df_to_use = df_to_use.filter(df_to_use[COLUMN_COUNT].is_not_null())
 
         features = df_to_use[TC_COLUMNS]
-        fs_reduced = pca.transform(scaler.transform(features))
+        fs_reduced = reducer.transform(scaler.transform(features))
 
         counts[idx_st] = df_to_use[COLUMN_COUNT].cast(pl.Int64).sum()
 
-        datas.append(fs_reduced)
-        weights.append(df_to_use[COLUMN_COUNT])
+        hist_datas.append(HistogramData(data=fs_reduced, weight=df_to_use[COLUMN_COUNT], title=ST_COLUMNS[idx_st],
+                                        alpha=1.0, cmap=cmap_st.colors[idx_st + 1], color=None))
 
-    colors = [cmap_st.colors[idx_st + 1] for idx_st in range(len(ST_COLUMNS))]
     alphas = np.log(counts)
     alphas = alphas * 0.8 / alphas.max()
-    titles = ST_COLUMNS
+    for i, hist_data in enumerate(hist_datas):
+        hist_datas.alpha = alphas[i]
 
-    plot_histograms2d(datas, weights, titles, file_path,
-                      colors=colors, bins=N_BINS, use_log_norm=use_log_norm, alpha=alphas)
+    plot_histograms2d(hist_datas, path=file_path, bins=N_BINS, use_log_norm=use_log_norm)
+
+
+def pca_fit_transform(data, weight, n_components=2):
+    """
+    Perform dimensionality reduction on the input data using PCA or Weighted PCA.
+    """
+    if weight is not None:
+        reducer = WPCA(n_components)
+        fs_reduced = reducer.fit_transform(data, sample_weight=weight.to_numpy())
+    else:
+        reducer = PCA(n_components)
+        fs_reduced = reducer.fit_transform(data)
+    return fs_reduced, reducer
 
 
 def main():

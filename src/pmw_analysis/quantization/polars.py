@@ -1,4 +1,8 @@
+"""
+This module contains methods for quantization of data using Polars data frames.
+"""
 import logging
+from dataclasses import dataclass
 from typing import Dict, Tuple, Iterable, List
 
 import pandas as pd
@@ -113,26 +117,31 @@ def _get_gmi_characteristics() -> pd.DataFrame:
 def _get_frequency(key: str):
     match key:
         case "10V" | "10H":
-            return "10.65"
+            freq = "10.65"
         case "19V" | "19H":
-            return "18.7"
+            freq = "18.7"
         case "23V":
-            return "23.8"
+            freq = "23.8"
         case "37V" | "37H":
-            return "36.64"
+            freq = "36.64"
         case "89V" | "89H":
-            return "89.0"
+            freq = "89.0"
         case "165V" | "165H":
-            return "166.0"
+            freq = "166.0"
         case "183V3":
-            return "183.31±3"
+            freq = "183.31±3"
         case "183V7":
-            return "183.31±7"
+            freq = "183.31±7"
         case _:
-            raise Exception(f"Unknown key {key}")
+            raise KeyError(f"Unknown key {key}")
+
+    return freq
 
 
 def get_uncertainties_dict(tc_columns: Iterable[str]) -> Dict[str, float]:
+    """
+    Create a dictionary of expected uncertainties for each Tc column.
+    """
     gmi_characteristics = _get_gmi_characteristics()
     uncertainties = {
         col: gmi_characteristics.loc[_get_frequency(col.removeprefix("Tc_"))][_EXPECTED_TOTAL_UNCERTAINTY]
@@ -153,56 +162,102 @@ def _round(df: pl.DataFrame,
 
 
 #### QUANTIZATION ####
-def _aggregate(df: pl.DataFrame,
-               quant_columns: Iterable[str],
-               flag_columns: Iterable[str],
-               periodic_columns: Iterable[str],
-               special_columns: Iterable[str],
-               agg_min_columns: Iterable[str],
-               periodic_dict: Dict[str, float],
-               special_dict: Dict[str, Tuple[float, str]],
-               ) -> pl.DataFrame:
+@dataclass
+class DataFrameQuantizationInfo:
+    """
+    Data class containing information required for performing quantization algorithm on provided Polars data frame.
+
+    Attributes
+    ----------
+    quant_columns : Iterable[str]
+        Columns whose values will be quantized (rounded to nearest step) and used for grouping.
+
+    quant_steps :  Iterable[float | int]
+        Step sizes used for quantizing each column in `quant_columns`. Must match the length of `quant_columns`.
+
+    flag_columns : Iterable[str], optional
+        Columns with discrete classification or quality flags (e.g., cloud status, surface type).
+        These are aggregated by computing value counts, producing a list of structs per group.
+
+    periodic_columns : Iterable[str], optional
+        Columns with periodic or cyclic values (e.g., longitude, local solar time, day of year).
+        These are aggregated using conditional means split at a predefined midpoint:
+            - Values less than or equal to the midpoint (e.g., before noon) are averaged separately from
+              values greater than the midpoint (e.g., after noon).
+        This allows better representation of mean behavior across cycles.
+
+    special_columns : Iterable[str], optional
+        Columns with special sentinel values indicating non-physical states (e.g., -88 = "below horizon").
+        These are aggregated by computing:
+          - Mean of valid (non-sentinel) values.
+          - Count of sentinel values.
+          - Count of valid values.
+
+    agg_min_columns : Iterable[str], optional
+        Columns where only the minimum value is retained for each group.
+        This is typically used for timestamp fields (e.g., earliest observation in group).
+
+    periodic_dict : Dict[str, float], optional
+        Midpoints for each periodic column, used to separate the value space during aggregation.
+        Example: {'sunLocalTime': 12.0, 'lon': 0.0, 'day': 183.0}
+
+    special_dict : Dict[str, Tuple[float, str]], optional
+        Dictionary specifying the sentinel value and its label for each `special_column`.
+        Example: {'sunGlintAngle_LF': (-88, "below_horizon")}
+
+    """
+    quant_columns: Iterable[str]
+    quant_steps: Iterable[float | int] = None
+    flag_columns: Iterable[str] = ()
+    periodic_columns: Iterable[str] = ()
+    special_columns: Iterable[str] = ()
+    agg_min_columns: Iterable[str] = ()
+    periodic_dict: Dict[str, float] = None
+    special_dict: Dict[str, Tuple[float, str]] = None
+
+
+def _aggregate(df: pl.DataFrame, info: DataFrameQuantizationInfo) -> pl.DataFrame:
     columns = set(df.columns)
 
     agg_mean_cols = [col for col in columns if
-                     col not in quant_columns and
-                     col not in flag_columns and
-                     col not in periodic_columns and
-                     col not in special_columns and
-                     col not in agg_min_columns]
+                     col not in info.quant_columns and
+                     col not in info.flag_columns and
+                     col not in info.periodic_columns and
+                     col not in info.special_columns and
+                     col not in info.agg_min_columns]
 
     estimated_size = df.estimated_size() / (1024 * 1024)
-    logging.info(f"Estimated dataframe size: {estimated_size:.2f} MB")
+    logging.info("Estimated dataframe size: %.2f MB", estimated_size)
 
     df_result = (
         df
-        .group_by(quant_columns)
+        .group_by(info.quant_columns)
         .agg(
-            *[pl.col(flag_col).value_counts(name=STRUCT_FIELD_COUNT) for flag_col in flag_columns],
+            *[pl.col(flag_col).value_counts(name=STRUCT_FIELD_COUNT) for flag_col in info.flag_columns],
 
             *[expr
-              for p_col in periodic_columns
+              for col in info.periodic_columns
               for expr in
-              [pl.when(pl.col(p_col) <= periodic_dict[p_col]).then(pl.col(p_col)).mean().alias(f"{p_col}_lt"),
-               pl.when(pl.col(p_col) <= periodic_dict[p_col]).then(pl.col(p_col)).count().alias(f"{p_col}_lt_count"),
-               pl.when(pl.col(p_col) > periodic_dict[p_col]).then(pl.col(p_col)).mean().alias(f"{p_col}_gt"),
-               pl.when(pl.col(p_col) > periodic_dict[p_col]).then(pl.col(p_col)).count().alias(f"{p_col}_gt_count")]],
+              [pl.when(pl.col(col) <= info.periodic_dict[col]).then(pl.col(col)).mean().alias(f"{col}_lt"),
+               pl.when(pl.col(col) <= info.periodic_dict[col]).then(pl.col(col)).count().alias(f"{col}_lt_count"),
+               pl.when(pl.col(col) > info.periodic_dict[col]).then(pl.col(col)).mean().alias(f"{col}_gt"),
+               pl.when(pl.col(col) > info.periodic_dict[col]).then(pl.col(col)).count().alias(f"{col}_gt_count")]],
 
             *[expr
-              for s_col in special_columns
-              for expr in [pl.col(s_col).filter(pl.col(s_col).ne(special_dict[s_col][0])).mean(),
-                           pl.col(s_col).filter(pl.col(s_col).eq(special_dict[s_col][0])).count().alias(
-                               f"{s_col}_{special_dict[s_col][1]}_count"),
-                           pl.col(s_col).filter(
-                               pl.col(s_col).ne(special_dict[s_col][0]) & pl.col(s_col).is_not_null()).count().alias(
-                               f"{s_col}_count")]],
+              for col in info.special_columns
+              for expr in [pl.col(col).filter(pl.col(col).ne(info.special_dict[col][0])).mean(),
+                           pl.col(col).filter(pl.col(col).eq(info.special_dict[col][0])).count().alias(
+                               f"{col}_{info.special_dict[col][1]}_count"),
+                           pl.col(col).filter(
+                               pl.col(col).ne(info.special_dict[col][0]) & pl.col(col).is_not_null()).count().alias(
+                               f"{col}_count")]],
 
             *[expr
               for mean_col in agg_mean_cols
               for expr in
               [pl.col(mean_col).mean(), (pl.len() - pl.col(mean_col).null_count()).alias(f"{mean_col}_count")]],
 
-            *[pl.col(min_col).min() for min_col in agg_min_columns],
+            *[pl.col(min_col).min() for min_col in info.agg_min_columns],
             pl.len().alias(COLUMN_COUNT),
         )
     )
@@ -213,6 +268,9 @@ def _aggregate(df: pl.DataFrame,
 
 #### PREPROCESSING PIPELINE ####
 def quantize_pmw_features(df: pl.DataFrame, uncertainty_dict: Dict[str, float]) -> pl.DataFrame:
+    """
+    Quantize PMW feature columns and performs group-wise aggregation on a Polars DataFrame.
+    """
     columns = df.columns
 
     # 0. Drop id columns.
@@ -240,8 +298,7 @@ def quantize_pmw_features(df: pl.DataFrame, uncertainty_dict: Dict[str, float]) 
     tc_cols = _get_tc_columns(df.columns)
     quant_steps = [uncertainty_dict[tc_col] for tc_col in tc_cols]
 
-    df = quantize_features(
-        df,
+    info = DataFrameQuantizationInfo(
         quant_columns=tc_cols,
         quant_steps=quant_steps,
         flag_columns=_get_flag_columns(columns),
@@ -252,78 +309,38 @@ def quantize_pmw_features(df: pl.DataFrame, uncertainty_dict: Dict[str, float]) 
         special_dict=_get_special_dict(),
     )
 
-    return df
+    return quantize_features(df, info)
 
 
-def quantize_features(df: pl.DataFrame,
-                      quant_columns: Iterable[str],
-                      quant_steps: Iterable[float | int],
-                      flag_columns: Iterable[str] = (),
-                      periodic_columns: Iterable[str] = (),
-                      special_columns: Iterable[str] = (),
-                      agg_min_columns: Iterable[str] = (),
-                      periodic_dict: Dict[str, float] = None,
-                      special_dict: Dict[str, Tuple[float, str]] = None,
-                      ) -> pl.DataFrame:
+def quantize_features(df: pl.DataFrame, info: DataFrameQuantizationInfo) -> pl.DataFrame:
     """
-    Quantizes specified feature columns and performs group-wise aggregation on a Polars DataFrame.
+    Quantize specified feature columns and performs group-wise aggregation on a Polars DataFrame.
 
     This function performs two main operations:
       1. Rounds numerical features (`quant_columns`).
-      2. Aggregates the DataFrame based on the quantized values, computing descriptive statistics over other types of columns.
+      2. Aggregates the DataFrame based on the quantized values,
+      computing descriptive statistics over other types of columns.
 
-    Parameters:
-        df (pl.DataFrame): The input Polars DataFrame containing features to quantize and aggregate.
+    Parameters
+    ----------
+    df : pl.DataFrame
+        The input Polars DataFrame containing features to quantize and aggregate.
 
-        quant_columns (Iterable[str]):
-            Columns whose values will be quantized (rounded to nearest step) and used for grouping.
+    info : DataFrameQuantizationInfo
+        Input information required for performing quantization algorithm.
 
-        quant_steps (Iterable[float | int]):
-            Step sizes used for quantizing each column in `quant_columns`. Must match the length of `quant_columns`.
-
-        flag_columns (Iterable[str], optional):
-            Columns with discrete classification or quality flags (e.g., cloud status, surface type).
-            These are aggregated by computing value counts, producing a list of structs per group.
-
-        periodic_columns (Iterable[str], optional):
-            Columns with periodic or cyclic values (e.g., longitude, local solar time, day of year).
-            These are aggregated using conditional means split at a predefined midpoint:
-              - Values less than or equal to the midpoint (e.g., before noon) are averaged separately from
-                values greater than the midpoint (e.g., after noon).
-            This allows better representation of mean behavior across cycles.
-
-        special_columns (Iterable[str], optional):
-            Columns with special sentinel values indicating non-physical states (e.g., -88 = "below horizon").
-            These are aggregated by computing:
-              - Mean of valid (non-sentinel) values.
-              - Count of sentinel values.
-              - Count of valid values.
-
-        agg_min_columns (Iterable[str], optional):
-            Columns where only the minimum value is retained for each group.
-            This is typically used for timestamp fields (e.g., earliest observation in group).
-
-        periodic_dict (Dict[str, float], optional):
-            Midpoints for each periodic column, used to separate the value space during aggregation.
-            Example: {'sunLocalTime': 12.0, 'lon': 0.0, 'day': 183.0}
-
-        special_dict (Dict[str, Tuple[float, str]], optional):
-            Dictionary specifying the sentinel value and its label for each `special_column`.
-            Example: {'sunGlintAngle_LF': (-88, "below_horizon")}
-
-    Returns:
+    Returns
+    -------
         pl.DataFrame: Aggregated DataFrame where rows with similar feature profiles are grouped and summarized.
     """
     row_count_before = len(df)
 
-    df = _round(df, quant_columns, quant_steps)
-    df = _aggregate(df, quant_columns,
-                    flag_columns, periodic_columns, special_columns, agg_min_columns,
-                    periodic_dict, special_dict)
+    df = _round(df, info.quant_columns, info.quant_steps)
+    df = _aggregate(df, info)
 
     assert row_count_before == df[COLUMN_COUNT].sum()
     row_count_after = len(df)
-    logging.info(f"Quantized features into {row_count_after}/{row_count_before}")
+    logging.info("Quantized features into %d/%d", row_count_after, row_count_before)
 
     return df
 
@@ -358,27 +375,27 @@ def _aggregate_structs(df: pl.DataFrame, flag_column: str) -> pl.DataFrame:
 def merge_quantized_pmw_features(dfs: Iterable[pl.DataFrame],
                                  quant_columns: Iterable[str] = TC_COLUMNS,
                                  ) -> pl.DataFrame:
+    """
+    Merge quantized PMW features from a collection of dataframes using specified quantization columns.
+    """
     df = next(iter(dfs))
     columns = [col.removesuffix("_lt").removesuffix("_gt") for col in df.columns if
                not col.endswith("count") and not col.endswith("_gt")]
-
-    return merge_quantized_features(
-        dfs,
+    info = DataFrameQuantizationInfo(
         quant_columns=quant_columns,
         flag_columns=_get_flag_columns(columns),
         periodic_columns=_get_periodic_columns(columns),
         special_columns=_get_special_columns(columns),
-        agg_min_columns=[COLUMN_OCCURRENCE]
+        agg_min_columns=[COLUMN_OCCURRENCE],
     )
 
+    return merge_quantized_features(dfs, info)
 
-def merge_quantized_features(dfs: Iterable[pl.DataFrame],
-                             quant_columns: Iterable[str],
-                             flag_columns: Iterable[str] = (),
-                             periodic_columns: Iterable[str] = (),
-                             special_columns: Iterable[str] = (),
-                             agg_min_columns: Iterable[str] = (),
-                             ) -> pl.DataFrame:
+
+def merge_quantized_features(dfs: Iterable[pl.DataFrame], info: DataFrameQuantizationInfo) -> pl.DataFrame:
+    """
+    Merge quantized features from a collection of dataframes using specified quantization configurations.
+    """
     df = pl.concat(dfs, how="diagonal")
     row_count_before = len(df)
 
@@ -386,11 +403,11 @@ def merge_quantized_features(dfs: Iterable[pl.DataFrame],
                not col.endswith("count") and not col.endswith("_gt")]
 
     agg_mean_cols = [col for col in columns if
-                     col not in quant_columns and
-                     col not in flag_columns and
-                     col not in periodic_columns and
-                     col not in special_columns and
-                     col not in agg_min_columns]
+                     col not in info.quant_columns and
+                     col not in info.flag_columns and
+                     col not in info.periodic_columns and
+                     col not in info.special_columns and
+                     col not in info.agg_min_columns]
 
     special_dict = _get_special_dict()
 
@@ -398,18 +415,18 @@ def merge_quantized_features(dfs: Iterable[pl.DataFrame],
         return (pl.col(col) * pl.col(f"{col}_count")).sum() / pl.col(f"{col}_count").sum()
 
     estimated_size = df.estimated_size() / (1024 * 1024)
-    logging.info(f"Estimated dataframe size: {estimated_size:.2f} MB")
+    logging.info("Estimated dataframe size: %.2f MB", estimated_size)
 
     df_result = (
         df
-        .group_by(quant_columns)
-        .agg(*[pl.col(flag_col).flatten() for flag_col in flag_columns],
+        .group_by(info.quant_columns)
+        .agg(*[pl.col(flag_col).flatten() for flag_col in info.flag_columns],
              *[expr
-               for p_col in periodic_columns
+               for p_col in info.periodic_columns
                for expr in [aggregate_mean(f"{p_col}_lt"), pl.col(f"{p_col}_lt_count").sum(),
                             aggregate_mean(f"{p_col}_gt"), pl.col(f"{p_col}_gt_count").sum()]],
              *[expr
-               for s_col in special_columns
+               for s_col in info.special_columns
                for expr in [aggregate_mean(s_col),
                             pl.col(f"{s_col}_{special_dict[s_col][1]}_count").sum(),
                             pl.col(f"{s_col}_count").sum()]],
@@ -418,22 +435,25 @@ def merge_quantized_features(dfs: Iterable[pl.DataFrame],
                for mean_col in agg_mean_cols
                for expr in [aggregate_mean(mean_col),
                             pl.col(f"{mean_col}_count").sum()]],
-             *[pl.col(min_col).min() for min_col in agg_min_columns],
+             *[pl.col(min_col).min() for min_col in info.agg_min_columns],
              pl.col(COLUMN_COUNT).sum(),
              )
     )
 
-    for flag_col in tqdm(flag_columns):
+    for flag_col in tqdm(info.flag_columns):
         df_result = _aggregate_structs(df_result, flag_col)
 
     row_count_after = len(df_result)
-    logging.info(f"Quantized features into {row_count_after}/{row_count_before}")
+    logging.info("Quantized features into %d/%d", row_count_after, row_count_before)
 
     assert df_result[COLUMN_COUNT].sum() == df[COLUMN_COUNT].sum()
     return df_result
 
 
 def filter_surface_type(df, flag_value: int | List[int]) -> pl.DataFrame:
+    """
+    Filter values in data frame leaving only those with the specified surface type.
+    """
     if isinstance(flag_value, int):
         flag_values = [flag_value]
     else:
@@ -447,6 +467,9 @@ def filter_surface_type(df, flag_value: int | List[int]) -> pl.DataFrame:
 
 
 def expand_occurrence_column(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Expand column into three, containing time of the first occurrence, longitude, and latitude.
+    """
     return df.with_columns(
         pl.col(COLUMN_OCCURRENCE).str.split("|").list.get(0).str.to_datetime("%Y-%m-%d %H:%M:%S.%9f")
         .alias(COLUMN_OCCURRENCE_TIME),

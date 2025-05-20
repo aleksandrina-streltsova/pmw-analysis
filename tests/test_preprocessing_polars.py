@@ -5,9 +5,10 @@ from typing import Dict, List
 import numpy as np
 import polars as pl
 
-from pmw_analysis.constants import COLUMN_TIME, COLUMN_COUNT, STRUCT_FIELD_COUNT
+from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_OCCURRENCE
 from pmw_analysis.quantization.polars import _round, _get_tc_columns, _get_flag_columns, _get_periodic_columns, \
-    _get_special_columns, _get_special_dict, _aggregate, _get_periodic_dict, merge_quantized_pmw_features
+    _get_special_columns, _get_special_dict, _aggregate, _get_periodic_dict, merge_quantized_pmw_features, \
+    DataFrameQuantizationInfo
 
 
 def _get_test_columns():
@@ -39,7 +40,7 @@ def _create_single_row() -> pl.DataFrame:
     }
 
     df = pl.DataFrame(
-        {**tc, **flag, **periodic, **special, **other, COLUMN_TIME: datetime.datetime(2000, 1, 1, 0, 0, 0)})
+        {**tc, **flag, **periodic, **special, **other, COLUMN_OCCURRENCE: datetime.datetime(2000, 1, 1, 0, 0, 0)})
     return df
 
 
@@ -75,7 +76,7 @@ def _create_single_row_aggregated() -> pl.DataFrame:
         **special,
         **special,
         **other,
-        COLUMN_TIME: datetime.datetime(2000, 1, 1, 0, 0, 0),
+        COLUMN_OCCURRENCE: datetime.datetime(2000, 1, 1, 0, 0, 0),
         COLUMN_COUNT: 0,
     }).with_columns([
         pl.col(flag_col)
@@ -174,12 +175,12 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
             df_before[3, other_col] = None
             df_before[4, other_col] = None
         # time
-        df_before[0, COLUMN_TIME] = datetime.datetime(2020, 1, 1, 0, 0, 0)
-        df_before[1, COLUMN_TIME] = datetime.datetime(2019, 2, 1, 0, 0, 0)
-        df_before[2, COLUMN_TIME] = datetime.datetime(2019, 1, 2, 0, 0, 0)
-        df_before[3, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 0, 0, 0)
-        df_before[4, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 1, 0, 0)
-        df_before[5, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+        df_before[0, COLUMN_OCCURRENCE] = datetime.datetime(2020, 1, 1, 0, 0, 0)
+        df_before[1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 2, 1, 0, 0, 0)
+        df_before[2, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 2, 0, 0, 0)
+        df_before[3, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 0, 0, 0)
+        df_before[4, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+        df_before[5, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
 
         def append_struct(df: pl.DataFrame, structs: List[Dict], col: str, row: int):
             df = df.with_columns(
@@ -234,14 +235,23 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
 
             expected[1, f"{other_col}_count"] = 1
         # time
-        expected[0, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 0, 0, 0)
-        expected[1, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+        expected[0, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 0, 0, 0)
+        expected[1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
         # count
         expected[0, COLUMN_COUNT] = n - 1
         expected[1, COLUMN_COUNT] = 1
 
-        actual = _aggregate(df_before, tc_cols, flag_cols, periodic_cols, special_cols, [COLUMN_TIME],
-                            periodic_dict, special_dict)
+        info = DataFrameQuantizationInfo(
+            quant_columns=tc_cols,
+            quant_steps=(),
+            flag_columns=flag_cols,
+            periodic_columns=periodic_cols,
+            special_columns=special_cols,
+            agg_min_columns=[COLUMN_OCCURRENCE],
+            periodic_dict=periodic_dict,
+            special_dict=special_dict,
+        )
+        actual = _aggregate(df_before, info)
         actual = actual.with_columns([
             pl.col(flag_col).list.sort()
             for flag_col in flag_cols
@@ -332,8 +342,8 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
             dfs[k][0, COLUMN_COUNT] = (n - 1) * (k + 1)
             dfs[k][1, COLUMN_COUNT] = k + 1
             # time
-            dfs[k][0, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 1 - k, 0, 0)
-            dfs[k][1, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+            dfs[k][0, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1 - k, 0, 0)
+            dfs[k][1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
 
         #### expected df after merging ####
         expected = pl.concat([_create_single_row_aggregated() for _ in range(3)])
@@ -403,9 +413,9 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         for k in range(len(dfs)):
             expected[k + 1, COLUMN_COUNT] = 1 * (k + 1)
         # time
-        expected[0, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 0, 0, 0)
+        expected[0, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 0, 0, 0)
         for k in range(len(dfs)):
-            expected[k + 1, COLUMN_TIME] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+            expected[k + 1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
 
         actual = merge_quantized_pmw_features(dfs)
         actual = actual.with_columns([

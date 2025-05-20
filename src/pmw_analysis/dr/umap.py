@@ -5,6 +5,7 @@ import argparse
 import pathlib
 
 import polars as pl
+import torch
 from sklearn.preprocessing import StandardScaler
 from torchdr import UMAP as TorchdrUMAP
 from tqdm import tqdm
@@ -12,7 +13,7 @@ from tqdm import tqdm
 from pmw_analysis.constants import COLUMN_COUNT, PMW_ANALYSIS_DIR, ST_COLUMNS, ST_GROUP_VEGETATION, \
     ST_GROUP_OCEAN, ST_GROUP_SNOW
 from pmw_analysis.quantization.polars import filter_surface_type
-from pmw_analysis.utils.pyplot import plot_histograms2d
+from pmw_analysis.utils.pyplot import plot_histograms2d, HistogramData
 
 
 def umap(df_path: pathlib.Path, min_dist, n_neighbors):
@@ -46,7 +47,7 @@ def umap(df_path: pathlib.Path, min_dist, n_neighbors):
         "max_iter": max_iter,
         "verbose": True,
         "backend": "faiss",
-        "device": "cuda",
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
         "n_neighbors": n_neighbors,
         "min_dist": min_dist,
     }
@@ -64,10 +65,7 @@ def umap(df_path: pathlib.Path, min_dist, n_neighbors):
         ("Vegetation (Group)", ST_GROUP_VEGETATION, "darkgreen"),
         ("Snow (Group)", ST_GROUP_SNOW, "magenta"),
     ]
-    datas = []
-    weights = []
-    colors = []
-    titles = []
+    hist_datas = []
 
     for group in tqdm(groups):
         name, surface_types, color = group
@@ -76,12 +74,8 @@ def umap(df_path: pathlib.Path, min_dist, n_neighbors):
         df_to_use = filter_surface_type(df, flag_values)
         df_to_use = df_to_use.filter(df_to_use[COLUMN_COUNT].is_not_null())
 
-        datas.append(df_to_use[["x", "y"]])
-        weights.append(df_to_use[COLUMN_COUNT])
-        colors.append(color)
-        titles.append(name)
-
-    alphas = 0.5
+        hist_datas.append(HistogramData(data=df_to_use[["x", "y"]], weight=df_to_use[COLUMN_COUNT], title=name,
+                                        alpha=0.5, cmap=None, color=color))
 
     dir_path = pathlib.Path("images") / df_path.parent.name
     dir_path.mkdir(parents=True, exist_ok=True)
@@ -89,8 +83,7 @@ def umap(df_path: pathlib.Path, min_dist, n_neighbors):
     suffix = f"{min_dist}_{n_neighbors}" + ("_log" if use_log_norm else "")
     file_path = dir_path / f"umap{suffix}.png"
 
-    plot_histograms2d(datas, weights, titles, file_path,
-                      colors=colors, bins=200, use_log_norm=use_log_norm, alpha=alphas)
+    plot_histograms2d(hist_datas, file_path, bins=200, use_log_norm=use_log_norm)
 
 
 def main():

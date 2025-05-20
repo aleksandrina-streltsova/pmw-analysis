@@ -1,2 +1,11 @@
+[BASIC]
+no-docstring-rgx=^_.*|^main$
+
 [FORMAT]
 max-line-length=120
+
+[MISCELLANEOUS]
+notes=FIXME,XXX
+
+[DESIGN]
+max-locals=20

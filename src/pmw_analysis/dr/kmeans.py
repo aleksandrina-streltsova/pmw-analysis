@@ -1,18 +1,31 @@
+"""
+Script for running KMeans++ on quantized transformed data.
+"""
 import argparse
 import pathlib
 
 import polars as pl
 from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 from pmw_analysis.constants import COLUMN_COUNT, TC_COLUMNS, PMW_ANALYSIS_DIR
-from pmw_analysis.copypaste.wpca import WPCA
-from pmw_analysis.utils.pyplot import plot_histograms2d
+from pmw_analysis.dr.pca import pca_fit_transform
+from pmw_analysis.utils.pyplot import plot_histograms2d, HistogramData
 
 N_BINS = 200
 
 def kmeans(df_path: pathlib.Path, use_weights: bool):
+    """
+    Perform KMeans++ clusterization on the specified dataset and
+    plot the first two principal components of features, colored by obtained clusters.
+
+    Parameters
+    ----------
+    df_path : pathlib.Path
+        The path to the input parquet file containing the dataset to process.
+    use_weights: bool
+         If True, point counts are used to weigh points when running KMeans++ and PCA.
+    """
     df_merged: pl.DataFrame = pl.read_parquet(df_path)
 
     df = df_merged[TC_COLUMNS + [COLUMN_COUNT]]
@@ -25,25 +38,23 @@ def kmeans(df_path: pathlib.Path, use_weights: bool):
 
     n_clusters = 3
 
-    kmeans = KMeans(n_clusters=n_clusters)
-    labels = kmeans.fit_predict(fs_scaled)
+    reducer = KMeans(n_clusters=n_clusters)
+    labels = reducer.fit_predict(fs_scaled)
 
-    if use_weights:
-        wpca = WPCA(n_components=2)
-        fs_reduced = wpca.fit_transform(fs_scaled, sample_weight=weight.to_numpy())
-    else:
-        pca = PCA(n_components=2)
-        fs_reduced = pca.fit_transform(fs_scaled)
-
-    datas = [fs_reduced[labels == cluster] for cluster in range(n_clusters)]
-    weights = [df[COLUMN_COUNT].filter(labels == cluster) for cluster in range(n_clusters)]
-    titles = [f"Cluster {cluster}" for cluster in range(n_clusters)]
+    fs_reduced, _ = pca_fit_transform(fs_scaled, weight if use_weights else None)
 
     dir_path = pathlib.Path("images") / df_path.parent.name
     dir_path.mkdir(parents=True, exist_ok=True)
     file_path = dir_path / f"kmeans_log{"_w" if use_weights else ""}.png"
 
-    plot_histograms2d(datas, weights, titles, file_path, bins=N_BINS, use_log_norm=True, alpha=0.5)
+    hist_datas = [
+        HistogramData(data=fs_reduced[labels == cluster],
+                      weight=df[COLUMN_COUNT].filter(labels == cluster),
+                      title=f"Cluster {cluster}",
+                      alpha=0.5, cmap=None, color=None)
+        for cluster in range(n_clusters)
+    ]
+    plot_histograms2d(hist_datas, path=file_path, bins=N_BINS, use_log_norm=True)
 
 
 def main():

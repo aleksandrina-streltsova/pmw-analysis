@@ -1,3 +1,6 @@
+"""
+This module provides logging utilities.
+"""
 import logging
 import time
 from contextlib import contextmanager
@@ -5,6 +8,9 @@ from contextlib import contextmanager
 
 @contextmanager
 def disable_logging():
+    """
+    A context manager to temporarily disable logging.
+    """
     logging_disabled = logging.root.manager.disable
     logging.disable(logging.INFO)
     try:
@@ -15,9 +21,12 @@ def disable_logging():
 
 @contextmanager
 def timing(description: str):
+    """
+    A context manager for measuring and logging the execution duration of a code block.
+    """
     start = time.time()
     try:
         yield
     finally:
         duration = time.time() - start
-        logging.info(f"{description} took {duration:.3f} seconds.")
+        logging.info("%s took %.3f seconds.", description, duration)

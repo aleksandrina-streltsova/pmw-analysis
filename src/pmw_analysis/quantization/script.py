@@ -1,3 +1,6 @@
+"""
+Script for performing quantization on data from bucket.
+"""
 import argparse
 import logging
 import pathlib
@@ -12,7 +15,7 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT, TC_COLUMNS
 from pmw_analysis.quantization.polars import get_uncertainties_dict, quantize_pmw_features, \
-    merge_quantized_pmw_features, quantize_features
+    merge_quantized_pmw_features, quantize_features, DataFrameQuantizationInfo
 from pmw_analysis.utils.logging import disable_logging, timing
 
 QUANTIZE_MEMORY_USAGE_FACTOR = 10
@@ -23,6 +26,7 @@ UNCERTAINTY_FACTOR_MAX = 20
 
 X_STEP = 10
 Y_STEP = 4
+
 
 def _quantize_with_memory_check(df: pl.DataFrame, unc_dict: Dict[str, float], limit: float):
     estimated_usage = QUANTIZE_MEMORY_USAGE_FACTOR * df.estimated_size("gb")
@@ -62,30 +66,33 @@ def _calculate_bounds():
 
 
 def quantize(path: pathlib.Path, transform: Callable):
-    with open(path / "factor", "r") as file:
+    """
+    Quantize fractions of data from bucket.
+    """
+    with open(path / "factor", "r", encoding="utf-8") as file:
         factor = float(file.read())
 
     x_bounds, y_bounds = _calculate_bounds()
-    for idx_x, (x_bound_left, x_bound_right) in enumerate(zip(x_bounds, x_bounds[1:])):
-        for idx_y, (y_bound_left, y_bound_right) in tqdm(enumerate(zip(y_bounds, y_bounds[1:])), total=len(y_bounds) - 1):
+    for idx_x, (x_bound_l, x_bound_r) in enumerate(zip(x_bounds, x_bounds[1:])):
+        for idx_y, (y_bound_l, y_bound_r) in tqdm(enumerate(zip(y_bounds, y_bounds[1:])), total=len(y_bounds) - 1):
             idx = idx_x * (len(y_bounds) - 1) + idx_y
 
             path_single = path / f"{idx}.parquet"
             if path_single.exists():
                 continue
 
-            extent = [x_bound_left, x_bound_right, y_bound_left, y_bound_right]
+            extent = [x_bound_l, x_bound_r, y_bound_l, y_bound_r]
 
-            with timing(f"Reading from bucket"):
+            with timing("Reading from bucket"):
                 df: pl.DataFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR, columns=None, extent=extent)
 
             df = transform(df)
             unc_dict = {col: factor * unc for col, unc in transform(get_uncertainties_dict(TC_COLUMNS)).items()}
 
-            with timing(f"Quantizing"):
+            with timing("Quantizing"):
                 df_result = _quantize_with_memory_check(df, unc_dict, MEMORY_USAGE_LIMIT)
 
-            with timing(f"Writing"):
+            with timing("Writing"):
                 df_result.write_parquet(path_single)
 
             logging.info(len(df) / len(df_result))
@@ -102,13 +109,13 @@ def _merge_partial(path: pathlib.Path, path_next: pathlib.Path, path_final: path
             df = pl.read_parquet(path / f"{n_processed}.parquet")
             estimated_usage += df.estimated_size("gb") * MERGE_MEMORY_USAGE_FACTOR
             if estimated_usage > MEMORY_USAGE_LIMIT:
-                logging.info(f"{path_next.name}: merging {len(dfs)} data frames")
+                logging.info("%s: merging %d data frames", path_next.name, len(dfs))
                 break
             dfs.append(df)
             n_processed += 1
         df_merged = _merge_with_memory_check(dfs, MEMORY_USAGE_LIMIT)
         if len(dfs) == n:
-            df_merged.write_parquet(path_final / f"final.parquet")
+            df_merged.write_parquet(path_final / "final.parquet")
         else:
             df_merged.write_parquet(path_next / f"{idx_merged}.parquet")
         idx_merged += 1
@@ -117,7 +124,10 @@ def _merge_partial(path: pathlib.Path, path_next: pathlib.Path, path_final: path
 
 
 def merge(path: pathlib.Path):
-    if (path / f"final.parquet").exists():
+    """
+    Merge quantized fractions of data from bucket.
+    """
+    if (path / "final.parquet").exists():
         return
 
     x_bounds, y_bounds = _calculate_bounds()
@@ -142,7 +152,10 @@ def merge(path: pathlib.Path):
             break
 
 
-def PD_transform(obj):
+def pd_transform(obj):
+    """
+    Replace vertical polarizations with polarization differences when possible.
+    """
     if isinstance(obj, pl.DataFrame):
         df = obj
         for freq in [19, 37, 89, 165]:
@@ -157,8 +170,13 @@ def PD_transform(obj):
         unc_dict["Tc_183V7"] = (unc_dict["Tc_183V3"] + unc_dict["Tc_183V7"]) / 2
         return unc_dict
 
+    raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
+
 
 def ratio_transform(obj):
+    """
+    Divide values by the values of 19H.
+    """
     tc_denom = "Tc_19H"
 
     if isinstance(obj, pl.DataFrame):
@@ -177,8 +195,14 @@ def ratio_transform(obj):
             unc_dict[tc_col] = (unc_dict[tc_col] + unc_dict[tc_denom]) / 200
         return unc_dict
 
+    raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
-def get_uncertainty_factor(path: pathlib.Path, transform: Callable):
+
+def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
+    """
+    Estimate a factor which uncertainty should be multiplied by during quantization.
+    Write the estimated factor into a file in the parent directory of the specified path.
+    """
     logging.info("Reading data")
     np.random.seed(566)
 
@@ -201,14 +225,16 @@ def get_uncertainty_factor(path: pathlib.Path, transform: Callable):
 
     while uncertainty_factor_r > uncertainty_factor_l + 1:
         factor = (uncertainty_factor_l + uncertainty_factor_r + 1) // 2
-        logging.info(f"Checking uncertainty factor {factor}")
+        logging.info("Checking uncertainty factor %d", factor)
 
         sizes_before = []
         sizes_after = []
 
         for df in tqdm(dfs):
             with disable_logging():
-                df_quantized = quantize_features(df, TC_COLUMNS, [factor * unc_dict[tc_col] for tc_col in TC_COLUMNS])
+                info = DataFrameQuantizationInfo(quant_columns=TC_COLUMNS,
+                                                 quant_steps=[factor * unc_dict[tc_col] for tc_col in TC_COLUMNS])
+                df_quantized = quantize_features(df, info)
 
             sizes_before.append(len(df))
             sizes_after.append(len(df_quantized))
@@ -220,14 +246,14 @@ def get_uncertainty_factor(path: pathlib.Path, transform: Callable):
     logging.basicConfig(level=logging.INFO)
 
     factor = uncertainty_factor_r
-    logging.info(f"Final uncertainty factor: {factor}")
-    with open(path / "factor", "w") as file:
+    logging.info("Final uncertainty factor: %d", factor)
+    with open(path / "factor", "w", encoding="utf-8") as file:
         file.write(str(factor))
 
     return factor
 
 
-if __name__ == '__main__':
+def main():
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser(description="Run quantization")
@@ -243,15 +269,19 @@ if __name__ == '__main__':
     path.mkdir(parents=True, exist_ok=True)
 
     if args.transform == "pd":
-        transform = PD_transform
+        transform = pd_transform
     elif args.transform == "ratio":
         transform = ratio_transform
     else:
         transform = lambda x: x
 
     if args.step == "factor":
-        factor = get_uncertainty_factor(path, transform)
+        estimate_uncertainty_factor(path, transform)
     elif args.step == "quantize":
         quantize(path, transform)
     else:
         merge(path)
+
+
+if __name__ == '__main__':
+    main()
