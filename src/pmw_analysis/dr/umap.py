@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import COLUMN_COUNT, PMW_ANALYSIS_DIR, ST_COLUMNS, ST_GROUP_VEGETATION, \
     ST_GROUP_OCEAN, ST_GROUP_SNOW
-from pmw_analysis.quantization.polars import filter_surface_type
+from pmw_analysis.quantization.dataframe_polars import filter_surface_type
 from pmw_analysis.utils.pyplot import plot_histograms2d, HistogramData
 
 

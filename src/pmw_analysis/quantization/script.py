@@ -4,19 +4,22 @@ Script for performing quantization on data from bucket.
 import argparse
 import logging
 import pathlib
-from typing import Dict, Callable, Iterable
+from typing import Dict, Callable, Iterable, List, Optional
 
 import gpm
+import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 from gpm.bucket import LonLatPartitioning
 from gpm.bucket.io import get_bucket_spatial_partitioning
 from tqdm import tqdm
 
-from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT, TC_COLUMNS
-from pmw_analysis.quantization.polars import get_uncertainties_dict, quantize_pmw_features, \
-    merge_quantized_pmw_features, quantize_features, DataFrameQuantizationInfo
+from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, COLUMN_COUNT, \
+    COLUMN_TIME
+from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
+    merge_quantized_pmw_features
 from pmw_analysis.utils.logging import disable_logging, timing
+from pmw_analysis.utils.polars import weighted_quantiles
 
 QUANTIZE_MEMORY_USAGE_FACTOR = 10
 MERGE_MEMORY_USAGE_FACTOR = 50
@@ -28,7 +31,9 @@ X_STEP = 10
 Y_STEP = 4
 
 
-def _quantize_with_memory_check(df: pl.DataFrame, unc_dict: Dict[str, float], limit: float):
+def _quantize_with_memory_check(df: pl.DataFrame, quant_columns: Iterable[str],
+                                unc_dict: Dict[str, float], range_dict: Optional[Dict[str, float]],
+                                limit: float) -> pl.DataFrame:
     estimated_usage = QUANTIZE_MEMORY_USAGE_FACTOR * df.estimated_size("gb")
     if estimated_usage > limit:
         raise MemoryError(
@@ -36,10 +41,10 @@ def _quantize_with_memory_check(df: pl.DataFrame, unc_dict: Dict[str, float], li
             f"exceeds limit ({limit:.2f} GB)."
         )
 
-    return quantize_pmw_features(df, unc_dict)
+    return quantize_pmw_features(df, quant_columns, unc_dict, range_dict)
 
 
-def _merge_with_memory_check(dfs: Iterable[pl.DataFrame], limit: float):
+def _merge_with_memory_check(dfs: Iterable[pl.DataFrame], quant_columns: List[str], limit: float):
     estimated_size = sum(df.estimated_size("gb") for df in dfs)
     estimated_usage = MERGE_MEMORY_USAGE_FACTOR * estimated_size
 
@@ -48,7 +53,7 @@ def _merge_with_memory_check(dfs: Iterable[pl.DataFrame], limit: float):
             f"Merging aborted: estimated memory usage ({estimated_usage:.2f} GB) "
             f"exceeds limit ({limit:.2f} GB)."
         )
-    return merge_quantized_pmw_features(dfs)
+    return merge_quantized_pmw_features(dfs, quant_columns)
 
 
 def _calculate_bounds():
@@ -71,6 +76,9 @@ def quantize(path: pathlib.Path, transform: Callable):
     """
     with open(path / "factor", "r", encoding="utf-8") as file:
         factor = float(file.read())
+    unc_dict = {col: factor * unc for col, unc in transform(get_uncertainties_dict(TC_COLUMNS)).items()}
+    range_dict = _get_ranges_dict(["default", "pd", "ratio"], plot_hists=False)
+    quant_columns = transform(TC_COLUMNS)
 
     x_bounds, y_bounds = _calculate_bounds()
     for idx_x, (x_bound_l, x_bound_r) in enumerate(zip(x_bounds, x_bounds[1:])):
@@ -85,12 +93,10 @@ def quantize(path: pathlib.Path, transform: Callable):
 
             with timing("Reading from bucket"):
                 df: pl.DataFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR, columns=None, extent=extent)
-
             df = transform(df)
-            unc_dict = {col: factor * unc for col, unc in transform(get_uncertainties_dict(TC_COLUMNS)).items()}
 
             with timing("Quantizing"):
-                df_result = _quantize_with_memory_check(df, unc_dict, MEMORY_USAGE_LIMIT)
+                df_result = _quantize_with_memory_check(df, quant_columns, unc_dict, range_dict, MEMORY_USAGE_LIMIT)
 
             with timing("Writing"):
                 df_result.write_parquet(path_single)
@@ -98,7 +104,8 @@ def quantize(path: pathlib.Path, transform: Callable):
             logging.info(len(df) / len(df_result))
 
 
-def _merge_partial(path: pathlib.Path, path_next: pathlib.Path, path_final: pathlib.Path, n: int):
+def _merge_partial(path: pathlib.Path, path_next: pathlib.Path, path_final: pathlib.Path, n: int, transform: Callable):
+    quant_columns = transform(TC_COLUMNS)
     n_processed = 0
 
     idx_merged = 0
@@ -113,7 +120,7 @@ def _merge_partial(path: pathlib.Path, path_next: pathlib.Path, path_final: path
                 break
             dfs.append(df)
             n_processed += 1
-        df_merged = _merge_with_memory_check(dfs, MEMORY_USAGE_LIMIT)
+        df_merged = _merge_with_memory_check(dfs, quant_columns, MEMORY_USAGE_LIMIT)
         if len(dfs) == n:
             df_merged.write_parquet(path_final / "final.parquet")
         else:
@@ -123,7 +130,7 @@ def _merge_partial(path: pathlib.Path, path_next: pathlib.Path, path_final: path
     return idx_merged
 
 
-def merge(path: pathlib.Path):
+def merge(path: pathlib.Path, transform: Callable):
     """
     Merge quantized fractions of data from bucket.
     """
@@ -145,7 +152,7 @@ def merge(path: pathlib.Path):
             path = path_next
             continue
 
-        n = _merge_partial(path, path_next, path_final, n)
+        n = _merge_partial(path, path_next, path_final, n, transform)
         path = path_next
 
         if n == 1:
@@ -170,6 +177,9 @@ def pd_transform(obj):
         unc_dict["Tc_183V7"] = (unc_dict["Tc_183V3"] + unc_dict["Tc_183V7"]) / 2
         return unc_dict
 
+    if isinstance(obj, List):
+        return obj
+
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
@@ -192,8 +202,33 @@ def ratio_transform(obj):
         for tc_col in TC_COLUMNS:
             if tc_col == tc_denom:
                 continue
-            unc_dict[tc_col] = (unc_dict[tc_col] + unc_dict[tc_denom]) / 200
+            unc_dict[tc_col] = (unc_dict[tc_col] + unc_dict[tc_denom]) / 100
         return unc_dict
+
+    if isinstance(obj, List):
+        return obj
+
+    raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
+
+
+def v1_transform(obj):
+    if isinstance(obj, pl.DataFrame):
+        df = obj
+        df = df.with_columns(
+            pl.col("Tc_37H").truediv(pl.col("Tc_19H")).alias("Tc_37H_Tc_19H"),
+            pl.col(f"Tc_89V").sub(pl.col(f"Tc_89H")).alias("PD_89"),
+        )
+        df = df.drop([col for col in TC_COLUMNS if col not in ["Tc_23V", "Tc_165V", "Tc_183V7"]])
+        return df
+
+    if isinstance(obj, Dict):
+        unc_dict = obj
+        unc_dict["Tc_37H_Tc_19H"] = (unc_dict["Tc_37H"] + unc_dict["Tc_19H"]) / 100
+        unc_dict["PD_89"] = (unc_dict["Tc_89V"] + unc_dict["Tc_89H"]) / 2
+        return unc_dict
+
+    if isinstance(obj, List):
+        return ["Tc_37H_Tc_19H", "PD_89", "Tc_23V", "Tc_165V", "Tc_183V7"]
 
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
@@ -203,6 +238,10 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     Estimate a factor which uncertainty should be multiplied by during quantization.
     Write the estimated factor into a file in the parent directory of the specified path.
     """
+    unc_dict = transform(get_uncertainties_dict(TC_COLUMNS))
+    # TODO: rewrite to use transform
+    range_dict = _get_ranges_dict(["default", "pd", "ratio"], plot_hists=False)
+
     logging.info("Reading data")
     np.random.seed(566)
 
@@ -215,10 +254,10 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     for idx_x, idx_y in tqdm(zip(np.random.choice(np.arange(len(x_bounds) - 1), k),
                                  np.random.choice(np.arange(len(y_bounds) - 1), k)), total=k):
         extent = [x_bounds[idx_x], x_bounds[idx_x + 1], y_bounds[idx_y], y_bounds[idx_y + 1]]
-        df: pl.DataFrame = gpm.bucket.read(BUCKET_DIR, extent, columns=TC_COLUMNS + [COLUMN_LON, COLUMN_LAT])
-        dfs.append(transform(df.select(TC_COLUMNS)))
+        df: pl.DataFrame = gpm.bucket.read(BUCKET_DIR, extent, columns=TC_COLUMNS + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME])
+        dfs.append(transform(df))
 
-    unc_dict = transform(get_uncertainties_dict(TC_COLUMNS))
+    quant_columns = transform(TC_COLUMNS)
 
     uncertainty_factor_l = 1
     uncertainty_factor_r = UNCERTAINTY_FACTOR_MAX
@@ -231,15 +270,15 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
         sizes_after = []
 
         for df in tqdm(dfs):
+            curr_uns_dict = {k: factor * v for k, v in unc_dict.items()}
             with disable_logging():
-                info = DataFrameQuantizationInfo(quant_columns=TC_COLUMNS,
-                                                 quant_steps=[factor * unc_dict[tc_col] for tc_col in TC_COLUMNS])
-                df_quantized = quantize_features(df, info)
+                df_quantized = quantize_pmw_features(df, quant_columns, curr_uns_dict, range_dict)
 
             sizes_before.append(len(df))
             sizes_after.append(len(df_quantized))
-
-        if np.median(np.array(sizes_before) / np.array(sizes_after)) < 100:
+        before_to_after_ratio = np.median(np.array(sizes_before) / np.array(sizes_after))
+        logging.info("before/after: %.2f", before_to_after_ratio)
+        if before_to_after_ratio < 100:
             uncertainty_factor_l = factor
         else:
             uncertainty_factor_r = factor
@@ -253,6 +292,50 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     return factor
 
 
+def _get_ranges_dict(dirs: List[str], plot_hists: bool = False) -> Dict[str, float]:
+    ranges_dict = {}
+
+    for dir in dirs:
+        df_path = pathlib.Path(PMW_ANALYSIS_DIR) / dir / "final.parquet"
+        df_merged: pl.DataFrame = pl.read_parquet(df_path)
+        df_merged = df_merged.with_columns(pl.col(COLUMN_COUNT).cast(pl.UInt64))
+        df_merged = df_merged.select(TC_COLUMNS + [COLUMN_COUNT])
+
+        if dir == "pd":
+            df_merged = df_merged.rename({f"Tc_{freq}V": f"PD_{freq}" for freq in [19, 37, 89, 165]})
+            df_merged = df_merged.drop([tc_col for tc_col in TC_COLUMNS if tc_col in df_merged.columns])
+        elif dir == "ratio":
+            tc_denom = "Tc_19H"
+            df_merged = df_merged.rename(
+                {tc_col: f"{tc_col}_{tc_denom}" for tc_col in TC_COLUMNS if tc_col != tc_denom})
+            df_merged = df_merged.drop([tc_col for tc_col in TC_COLUMNS if tc_col in df_merged.columns])
+
+        for tc_col in [col for col in df_merged.columns if col != COLUMN_COUNT]:
+            value_count = df_merged[[tc_col, COLUMN_COUNT]].group_by(tc_col).sum()
+            value_count = value_count.filter(pl.col(tc_col).is_not_null())
+            value_count = value_count.sort(tc_col)
+
+            q_min, q_max = weighted_quantiles(value_count, [1e-6, 1 - 1e-6], tc_col, COLUMN_COUNT)
+            ranges_dict[f"{tc_col}_min"] = q_min
+            ranges_dict[f"{tc_col}_max"] = q_max
+
+            if plot_hists:
+                fig, ax = plt.subplots(figsize=(10, 6))
+                width = np.median((value_count[tc_col][1:] - value_count[tc_col][:-1]).to_numpy()) / 2
+                ax.bar(value_count[tc_col], value_count[COLUMN_COUNT], width=width)
+                ax.set_xlabel(tc_col)
+                ax.set_ylabel(COLUMN_COUNT)
+                ax.set_yscale("log")
+                ax.set_title(f"{tc_col}")
+                fig.tight_layout()
+
+                y_min, y_max = ax.get_ylim()
+                ax.vlines([q_min, q_max], ymin=y_min, ymax=y_max, colors="r")
+
+                fig.show()
+    return ranges_dict
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
 
@@ -260,7 +343,7 @@ def main():
 
     parser.add_argument("--step", "-s", default="factor", choices=["factor", "quantize", "merge"],
                         help="Quantization pipeline's step to perform")
-    parser.add_argument("--transform", "-t", default="default", choices=["default", "pd", "ratio"],
+    parser.add_argument("--transform", "-t", default="default", choices=["default", "pd", "ratio", "v1"],
                         help="Type of transformation to perform on data")
 
     args = parser.parse_args()
@@ -272,6 +355,8 @@ def main():
         transform = pd_transform
     elif args.transform == "ratio":
         transform = ratio_transform
+    elif args.transform == "v1":
+        transform = v1_transform
     else:
         transform = lambda x: x
 
@@ -280,7 +365,7 @@ def main():
     elif args.step == "quantize":
         quantize(path, transform)
     else:
-        merge(path)
+        merge(path, transform)
 
 
 if __name__ == '__main__':

@@ -12,7 +12,7 @@ from pmw_analysis.constants import (
     DIM_ALONG_TRACK, COLUMN_TIME, SAVEFIG_FLAG, SAVEFIG_DIR, PRODUCT_1C_GMI_R,
     PRODUCT_TYPE_RS, VERSION, STORAGE_GES_DISC, VARIABLE_TC, DIM_PMW,
 )
-from pmw_analysis.quantization.pandas import segment_features_into_bins
+from pmw_analysis.quantization.dataframe_pandas import segment_features_into_bins
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_FD
 
 # Define analysis time period

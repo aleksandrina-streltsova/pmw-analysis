@@ -21,7 +21,7 @@ from pmw_analysis.constants import (
     VARIABLE_SURFACE_TYPE_INDEX,
     TC_COLUMNS, ST_COLUMNS,
 )
-from pmw_analysis.quantization.polars import filter_surface_type, expand_occurrence_column
+from pmw_analysis.quantization.dataframe_polars import filter_surface_type, expand_occurrence_column
 from pmw_analysis.utils.pyplot import finalize_axis
 
 

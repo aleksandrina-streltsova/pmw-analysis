@@ -3,7 +3,7 @@ This module contains methods for quantization of data using Polars data frames.
 """
 import logging
 from dataclasses import dataclass
-from typing import Dict, Tuple, Iterable, List
+from typing import Dict, Tuple, Iterable, List, Optional
 
 import pandas as pd
 import polars as pl
@@ -49,7 +49,7 @@ def _get_periodic_columns(columns: Iterable[str]) -> Iterable[str]:
     periodic_columns = [
         'sunLocalTime',  # mean of [0, 12], mean of [12, 24]
         'lon',  # mean of [-180, 0], mean of [0, 180]
-        # 'day',  # month: mean of [1, 183], mean of [183, 365] TODO: fix
+        'day',  # month: mean of [1, 183], mean of [183, 365]
     ]
     return [col for col in columns if col in periodic_columns]
 
@@ -152,7 +152,11 @@ def get_uncertainties_dict(tc_columns: Iterable[str]) -> Dict[str, float]:
 
 def _round(df: pl.DataFrame,
            quant_columns: Iterable[str],
-           quant_steps: Iterable[float | int]) -> pl.DataFrame:
+           quant_steps: Iterable[float | int],
+           quant_ranges: Optional[Iterable[Tuple[float | int, float | int]]]) -> pl.DataFrame:
+    if quant_ranges is not None:
+        df = df.with_columns([pl.col(c).clip(lower, upper) for c, (lower, upper) in zip(quant_columns, quant_ranges)])
+
     df_result = df.with_columns([
         (pl.col(col) / step).round() * step
         for col, step in zip(quant_columns, quant_steps)
@@ -174,6 +178,9 @@ class DataFrameQuantizationInfo:
 
     quant_steps :  Iterable[float | int]
         Step sizes used for quantizing each column in `quant_columns`. Must match the length of `quant_columns`.
+
+    quant_ranges : Iterable[Tuple[float | int, float | int]], optional
+        Value ranges used for clipping (limiting) `quant_columns`. Must match the length of `quant_columns`.
 
     flag_columns : Iterable[str], optional
         Columns with discrete classification or quality flags (e.g., cloud status, surface type).
@@ -208,6 +215,7 @@ class DataFrameQuantizationInfo:
     """
     quant_columns: Iterable[str]
     quant_steps: Iterable[float | int] = None
+    quant_ranges: Iterable[Tuple[float | int, float | int]] = None
     flag_columns: Iterable[str] = ()
     periodic_columns: Iterable[str] = ()
     special_columns: Iterable[str] = ()
@@ -267,14 +275,14 @@ def _aggregate(df: pl.DataFrame, info: DataFrameQuantizationInfo) -> pl.DataFram
 
 
 #### PREPROCESSING PIPELINE ####
-def quantize_pmw_features(df: pl.DataFrame, uncertainty_dict: Dict[str, float]) -> pl.DataFrame:
+def quantize_pmw_features(df: pl.DataFrame, quant_columns: Iterable[str],
+                          uncertainty_dict: Dict[str, float],
+                          range_dict: Optional[Dict[str, float]]) -> pl.DataFrame:
     """
     Quantize PMW feature columns and performs group-wise aggregation on a Polars DataFrame.
     """
-    columns = df.columns
-
     # 0. Drop id columns.
-    df = df.drop(_get_columns_to_drop(columns))
+    df = df.drop(_get_columns_to_drop(df.columns))
 
     # 1. Replace NaN, -99, and -9999 by nulls.
     df = df.fill_nan(None)
@@ -295,15 +303,18 @@ def quantize_pmw_features(df: pl.DataFrame, uncertainty_dict: Dict[str, float]) 
     df.drop_in_place(COLUMN_TIME)
 
     # 4. Quantize Tc columns and group duplicate signatures.
-    tc_cols = _get_tc_columns(df.columns)
-    quant_steps = [uncertainty_dict[tc_col] for tc_col in tc_cols]
+    quant_steps = [uncertainty_dict[col] for col in quant_columns]
+    quant_ranges = [
+        (range_dict[f"{col}_min"], range_dict[f"{col}_max"]) for col in quant_columns
+    ] if range_dict is not None else None
 
     info = DataFrameQuantizationInfo(
-        quant_columns=tc_cols,
+        quant_columns=quant_columns,
         quant_steps=quant_steps,
-        flag_columns=_get_flag_columns(columns),
-        periodic_columns=_get_periodic_columns(columns),
-        special_columns=_get_special_columns(columns),
+        quant_ranges=quant_ranges,
+        flag_columns=_get_flag_columns(df.columns),
+        periodic_columns=_get_periodic_columns(df.columns),
+        special_columns=_get_special_columns(df.columns),
         agg_min_columns=[COLUMN_OCCURRENCE],
         periodic_dict=_get_periodic_dict(),
         special_dict=_get_special_dict(),
@@ -335,7 +346,7 @@ def quantize_features(df: pl.DataFrame, info: DataFrameQuantizationInfo) -> pl.D
     """
     row_count_before = len(df)
 
-    df = _round(df, info.quant_columns, info.quant_steps)
+    df = _round(df, info.quant_columns, info.quant_steps, info.quant_ranges)
     df = _aggregate(df, info)
 
     assert row_count_before == df[COLUMN_COUNT].sum()
@@ -373,7 +384,7 @@ def _aggregate_structs(df: pl.DataFrame, flag_column: str) -> pl.DataFrame:
 
 
 def merge_quantized_pmw_features(dfs: Iterable[pl.DataFrame],
-                                 quant_columns: Iterable[str] = TC_COLUMNS,
+                                 quant_columns: Iterable[str],
                                  ) -> pl.DataFrame:
     """
     Merge quantized PMW features from a collection of dataframes using specified quantization columns.

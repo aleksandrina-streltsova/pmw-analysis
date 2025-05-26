@@ -5,8 +5,8 @@ from typing import Dict, List
 import numpy as np
 import polars as pl
 
-from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_OCCURRENCE
-from pmw_analysis.quantization.polars import _round, _get_tc_columns, _get_flag_columns, _get_periodic_columns, \
+from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_OCCURRENCE, TC_COLUMNS
+from pmw_analysis.quantization.dataframe_polars import _round, _get_tc_columns, _get_flag_columns, _get_periodic_columns, \
     _get_special_columns, _get_special_dict, _aggregate, _get_periodic_dict, merge_quantized_pmw_features, \
     DataFrameQuantizationInfo
 
@@ -120,7 +120,7 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
             df_after_expected[2, tc_columns[i]] = 0.5 + i * 1.5
         df_after_expected[2, tc_columns[n_tc - 1]] = (0.5 + (n_tc - 1) * 1.5) * 2
 
-        df_after_actual = _round(df_before, tc_columns, uncertainties)
+        df_after_actual = _round(df_before, tc_columns, uncertainties, quant_ranges=None)
 
         assert df_after_expected.equals(df_after_actual)
 
@@ -243,7 +243,6 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
 
         info = DataFrameQuantizationInfo(
             quant_columns=tc_cols,
-            quant_steps=(),
             flag_columns=flag_cols,
             periodic_columns=periodic_cols,
             special_columns=special_cols,
@@ -417,7 +416,7 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         for k in range(len(dfs)):
             expected[k + 1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
 
-        actual = merge_quantized_pmw_features(dfs)
+        actual = merge_quantized_pmw_features(dfs, TC_COLUMNS)
         actual = actual.with_columns([
             pl.col(flag_col).list.sort()
             for flag_col in flag_cols
