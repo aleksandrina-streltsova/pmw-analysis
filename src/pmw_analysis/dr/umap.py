@@ -9,6 +9,7 @@ import torch
 from sklearn.preprocessing import StandardScaler
 from torchdr import UMAP as TorchdrUMAP
 from tqdm import tqdm
+from umap import UMAP
 
 from pmw_analysis.constants import COLUMN_COUNT, PMW_ANALYSIS_DIR, ST_COLUMNS, ST_GROUP_VEGETATION, \
     ST_GROUP_OCEAN, ST_GROUP_SNOW
@@ -43,17 +44,9 @@ def umap(df_path: pathlib.Path, min_dist, n_neighbors):
     features_scaled = df[feature_columns]
     features_scaled = StandardScaler().fit_transform(features_scaled)
 
-    kwargs_torchdr = {
-        "max_iter": max_iter,
-        "verbose": True,
-        "backend": "faiss",
-        "device": "cuda" if torch.cuda.is_available() else "cpu",
-        "n_neighbors": n_neighbors,
-        "min_dist": min_dist,
-    }
-
-    torchdr_umap = TorchdrUMAP(**kwargs_torchdr)
-    embedding = torchdr_umap.fit_transform(features_scaled)
+    embedding, torchdr_umap = umap_fit_transform(features_scaled,
+                                                 n_components=2, max_iter=max_iter,
+                                                 n_neighbors=n_neighbors, min_dist=min_dist)
 
     df = df.with_columns(
         pl.Series("x", embedding[:, 0]),
@@ -84,6 +77,33 @@ def umap(df_path: pathlib.Path, min_dist, n_neighbors):
     file_path = dir_path / f"umap{suffix}.png"
 
     plot_histograms2d(hist_datas, file_path, bins=200, use_log_norm=use_log_norm)
+
+
+def umap_fit_transform(features: pl.DataFrame,
+                       n_components: int, max_iter: int,
+                       n_neighbors: int, min_dist: float):
+    if torch.cuda.is_available():
+        kwargs_torchdr = {
+            "n_components": n_components,
+            "max_iter": max_iter,
+            "verbose": True,
+            "backend": "faiss",
+            "device": "cuda",
+            "n_neighbors": n_neighbors,
+            "min_dist": min_dist,
+        }
+        reducer = TorchdrUMAP(**kwargs_torchdr)
+    else:
+        kwargs_umap = {
+            "n_components": n_components,
+            "n_epochs": max_iter,
+            "verbose": True,
+            "n_neighbors": n_neighbors,
+            "min_dist": min_dist,
+        }
+        reducer = UMAP(**kwargs_umap)
+    features_reduced = reducer.fit_transform(features)
+    return features_reduced, reducer
 
 
 def main():

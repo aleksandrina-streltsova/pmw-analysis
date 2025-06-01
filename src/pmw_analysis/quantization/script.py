@@ -233,6 +233,28 @@ def v1_transform(obj):
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
+def v2_transform(obj):
+    if isinstance(obj, pl.DataFrame):
+        df = obj
+        df = df.with_columns(
+            pl.col("Tc_37H").truediv(pl.col("Tc_19H")).alias("Tc_37H_Tc_19H"),
+            pl.col(f"Tc_89V").sub(pl.col(f"Tc_89H")).alias("PD_89"),
+        )
+        df = df.drop([col for col in TC_COLUMNS if col not in ["Tc_19V", "Tc_89V"]])
+        return df
+
+    if isinstance(obj, Dict):
+        unc_dict = obj
+        unc_dict["Tc_37H_Tc_19H"] = (unc_dict["Tc_37H"] + unc_dict["Tc_19H"]) / 100
+        unc_dict["PD_89"] = (unc_dict["Tc_89V"] + unc_dict["Tc_89H"]) / 2
+        return unc_dict
+
+    if isinstance(obj, List):
+        return ["Tc_37H_Tc_19H", "PD_89", "Tc_19V", "Tc_89V"]
+
+    raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
+
+
 def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     """
     Estimate a factor which uncertainty should be multiplied by during quantization.
@@ -259,7 +281,7 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
 
     quant_columns = transform(TC_COLUMNS)
 
-    uncertainty_factor_l = 1
+    uncertainty_factor_l = 0
     uncertainty_factor_r = UNCERTAINTY_FACTOR_MAX
 
     while uncertainty_factor_r > uncertainty_factor_l + 1:
@@ -336,6 +358,21 @@ def _get_ranges_dict(dirs: List[str], plot_hists: bool = False) -> Dict[str, flo
     return ranges_dict
 
 
+def get_transformation_function(arg_transform: str) -> Callable:
+    if arg_transform == "pd":
+        transform = pd_transform
+    elif arg_transform == "ratio":
+        transform = ratio_transform
+    elif arg_transform == "v1":
+        transform = v1_transform
+    elif arg_transform == "v2":
+        transform = v2_transform
+    else:
+        transform = lambda x: x
+
+    return transform
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
 
@@ -343,7 +380,8 @@ def main():
 
     parser.add_argument("--step", "-s", default="factor", choices=["factor", "quantize", "merge"],
                         help="Quantization pipeline's step to perform")
-    parser.add_argument("--transform", "-t", default="default", choices=["default", "pd", "ratio", "v1"],
+    parser.add_argument("--transform", "-t", default="default",
+                        choices=["default", "pd", "ratio", "v1", "v2"],
                         help="Type of transformation to perform on data")
 
     args = parser.parse_args()
@@ -351,15 +389,7 @@ def main():
     path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform
     path.mkdir(parents=True, exist_ok=True)
 
-    if args.transform == "pd":
-        transform = pd_transform
-    elif args.transform == "ratio":
-        transform = ratio_transform
-    elif args.transform == "v1":
-        transform = v1_transform
-    else:
-        transform = lambda x: x
-
+    transform = get_transformation_function(args.transform)
     if args.step == "factor":
         estimate_uncertainty_factor(path, transform)
     elif args.step == "quantize":
