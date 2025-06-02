@@ -7,6 +7,7 @@ from typing import Callable
 
 import faiss
 import hdbscan
+import joblib
 import polars as pl
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
@@ -27,6 +28,37 @@ UMAP = "umap"
 KMEANS = "kmeans"
 HDBSCAN = "hdbscan"
 
+class ClusterModel:
+    def __init__(self, scaler, reducer, clusterer):
+        self.scaler = scaler
+        self.reducer = reducer
+        self.clusterer = clusterer
+
+    def predict(self, features):
+        features_scaled = self.scaler.transform(features)
+        features_reduced = self.reducer.transform(features_scaled)
+        labels = self.clusterer.predict(features_reduced)
+        return labels
+
+    def save(self, path):
+        joblib.dump(self, path)
+
+    @staticmethod
+    def load(path):
+        return joblib.load(path)
+
+
+class HDBSCANCLusterModel:
+    def __init__(self, index_train, labels_train):
+        self.index_train = index_train
+        self.labels_train = labels_train
+
+    def predict(self, features_reduced):
+        indices = self.index_train.search(features_reduced, k=1)[1].flatten()
+        labels = self.labels_train[indices]
+        return labels
+
+
 def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, transform: Callable):
     """
     Perform clusterization on the specified dataset.
@@ -38,9 +70,7 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
     #transform = get_transformation_function("v1")
 
     df_merged: pl.DataFrame = pl.read_parquet(df_path)
-    #feature_columns = transform(TC_COLUMNS)
-    #feature_columns = ['Tc_19V', 'Tc_89V', 'PD_89', 'Tc_37H_Tc_19H']
-    feature_columns = ['PD_19', 'Tc_23V', 'Tc_89V', 'PD_89', 'Tc_37H_Tc_19H']
+    feature_columns = ["Tc_37H_Tc_19H", "PD_89", "Tc_19V", "Tc_89V"]
 
     df = df_merged[feature_columns + [COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_OCCURRENCE]]
     df = merge_quantized_pmw_features([df], quant_columns=feature_columns)
@@ -80,27 +110,28 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
         clusterer = KMeans(n_clusters=n_clusters)
         clusterer.fit(features_train_reduced, sample_weight=weight_train)
     elif clusterization == HDBSCAN:
-        clusterer = hdbscan.HDBSCAN(min_cluster_size=100, prediction_data=True)
-        clusterer.fit(features_train_reduced)
-        labels_train, _ = hdbscan.approximate_predict(clusterer, features_train_reduced)
-        n_clusters = labels_train.max() + 1
-    else:
-        raise ValueError(f"{clusterization} is not supported")
+        clusterer_base = hdbscan.HDBSCAN(min_cluster_size=100, prediction_data=True)
+        clusterer_base.fit(features_train_reduced)
 
-    #### Applying on the whole dataset ####
-    features_scaled = scaler.transform(df[feature_columns])
-    features_reduced = reducer.transform(features_scaled)
-    if clusterization == KMEANS:
-        labels = clusterer.predict(features_reduced)
-    else:
+        labels_train, _ = hdbscan.approximate_predict(clusterer_base, features_train_reduced)
         non_noisy_data = features_train_reduced[labels_train != -1]
         non_noisy_labels = labels_train[labels_train != -1]
 
         index = faiss.IndexFlatL2(non_noisy_data.shape[1])
         index.add(non_noisy_data)
 
-        indices = index.search(features_reduced, k=1)[1].flatten()
-        labels = non_noisy_labels[indices]
+        clusterer = HDBSCANCLusterModel(index, non_noisy_labels)
+        n_clusters = labels_train.max() + 1
+    else:
+        raise ValueError(f"{clusterization} is not supported")
+
+    final_model = ClusterModel(scaler, reducer, clusterer)
+    final_model.save(df_path.parent / f"{reduction}_{clusterization}.pkl")
+
+    #### Applying on the whole dataset ####
+    features_scaled = scaler.transform(df[feature_columns])
+    features_reduced = reducer.transform(features_scaled)
+    labels = clusterer.predict(features_reduced)
 
     #### Plotting ####
     use_log_norm = False

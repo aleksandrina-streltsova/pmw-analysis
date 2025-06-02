@@ -11,6 +11,7 @@ COLUMN_TIME_FRACTION = "time_fraction"
 COLUMN_SUFFIX_DOMINANT_CYCLE = "_dominant_cycle"
 COLUMN_LON = "lon"
 COLUMN_LAT = "lat"
+COLUMN_CLUSTER = "cluster"
 
 COLUMN_OCCURRENCE_TIME = f"occurrence_{COLUMN_TIME}"
 COLUMN_OCCURRENCE_LON = f"occurrence_{COLUMN_LON}"
@@ -22,6 +23,7 @@ ATTR_NAME = "name"
 ATTR_PERIODOGRAM_DICT = "periodogram_dict"
 
 DIM_ALONG_TRACK = "along_track"
+DIM_CROSS_TRACK = "cross_track"
 DIM_PMW = "pmw_frequency"
 
 SAVEFIG_FLAG = True
