@@ -87,13 +87,15 @@ class HistogramData:
     data: np.ndarray | pl.DataFrame | pd.DataFrame
     weight: np.ndarray | pl.Series | pd.Series
     title: str
+    x_label: str
+    y_label: str
     alpha: float
     cmap: str | mcolors.Colormap | None
     color: str | None
 
 
-def plot_histograms2d(hist_datas: List[HistogramData], path: Path, bins: int = 10,
-                      use_log_norm=True, use_shared_norm=True):
+def plot_histograms2d(hist_datas: List[HistogramData], path: Path, title: str,
+                      bins: int = 10, use_log_norm=True, use_shared_norm=True):
     """
     Plot multiple 2D histograms from datasets and a combined visualization where
     2D histograms are overlayed.
@@ -130,7 +132,7 @@ def plot_histograms2d(hist_datas: List[HistogramData], path: Path, bins: int = 1
 
     nrows = min(len(hist_datas), k)
     ncols = (len(hist_datas) + nrows - 1) // nrows
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4 * ncols, 3 * nrows))
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4 * ncols + 2, 4 * nrows + 1))
 
     for i, (hist_data, hist) in enumerate(zip(hist_datas, hists)):
         vmin = hist.min()
@@ -151,10 +153,12 @@ def plot_histograms2d(hist_datas: List[HistogramData], path: Path, bins: int = 1
             ax: plt.Axes = axes[i // ncols][i % ncols]
 
         sns.heatmap(hist, vmin=vmin, vmax=vmax, cmap=hist_data.cmap, norm=norm, annot=False, ax=ax)
-        ax.set_xticks(x_ticks, x_tick_labels)
-        ax.set_yticks(y_ticks, y_tick_labels)
+        ax.set_xticks(x_ticks, x_tick_labels, rotation=90)
+        ax.set_yticks(y_ticks, y_tick_labels, rotation=0)
         ax.set_title(hist_data.title)
-
+        ax.set_xlabel(hist_data.x_label)
+        ax.set_ylabel(hist_data.y_label)
+    fig.suptitle(title)
     fig.tight_layout()
     fig.savefig(path)
     fig.show()
@@ -176,11 +180,16 @@ def plot_histograms2d(hist_datas: List[HistogramData], path: Path, bins: int = 1
     for i, (hist_data, hist) in enumerate(zip(hist_datas, hists)):
         # plot histograms combined
         norm = norm_combined if use_shared_norm else _get_norm(hist.min(), hist.max(), use_log_norm)
-        sns.heatmap(hist, cmap=hist_data.cmap, norm=norm, mask=hist==0,
-                    annot=False, ax=ax_combined, alpha=hist_data.alpha, cbar=False)
-        ax_combined.set_xticks(x_ticks, x_tick_labels)
-        ax_combined.set_yticks(y_ticks, y_tick_labels)
-
+        mask = hist <= np.quantile(hist.flatten()[hist.flatten() > 0], 0.001)
+        alpha = ~mask * hist_data.alpha
+        sns.heatmap(hist, cmap=hist_data.cmap, norm=norm, mask=mask,
+                    annot=False, ax=ax_combined, alpha=alpha, cbar=False)
+        ax_combined.set_xticks(x_ticks, x_tick_labels, rotation=90)
+        ax_combined.set_yticks(y_ticks, y_tick_labels, rotation=0)
+    ax_combined.set_title(title)
+    ax_combined.set_xlabel(hist_datas[0].x_label)
+    ax_combined.set_ylabel(hist_datas[0].y_label)
+    fig_combined.tight_layout()
     fig_combined.savefig(path.parent / f"{path.stem}_combined.png")
     fig_combined.show()
 

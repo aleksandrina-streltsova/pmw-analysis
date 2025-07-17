@@ -6,18 +6,19 @@ import pathlib
 import gpm
 import xarray as xr
 from gpm.retrievals.retrieval_1b_c_pmw import retrieve_PD, retrieve_PR, retrieve_PCT, retrieve_rgb_composites
+from gpm.utils.pmw import get_pmw_channel
 from matplotlib import pyplot as plt
 
 from pmw_analysis.constants import (
     DIM_ALONG_TRACK, COLUMN_TIME, SAVEFIG_FLAG, SAVEFIG_DIR, PRODUCT_1C_GMI_R,
-    PRODUCT_TYPE_RS, VERSION, STORAGE_GES_DISC, VARIABLE_TC, DIM_PMW,
+    PRODUCT_TYPE_RS, VERSION, STORAGE_GES_DISC, VARIABLE_TC, DIM_PMW, TC_COLUMNS,
 )
 from pmw_analysis.quantization.dataframe_pandas import segment_features_into_bins
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_FD
 
 # Define analysis time period
-START_TIME = "2015-09-05 08:00:00"
-END_TIME = "2015-09-05 09:00:00"
+START_TIME = "2021-01-30 08:00:00"
+END_TIME = "2021-01-31 08:00:00"
 
 # Define product
 PRODUCT = PRODUCT_1C_GMI_R
@@ -38,7 +39,8 @@ ds = dt.gpm.regrid_pmw_l1(scan_mode_reference="S1")
 # ds = gpm.open_dataset(product, start_time, end_time, variable, product_type=product_type, chunks={})
 
 # Load data over region of interest
-extent = [12, 16, 39, 42]
+extent = [28, 32, 58, 62]
+prefix = "spb_winter"
 list_isel_dict = ds.gpm.get_crop_slices_by_extent(extent)
 ds = xr.concat([ds.isel(isel_dict) for isel_dict in list_isel_dict], dim=DIM_ALONG_TRACK)
 ds = ds.compute()
@@ -64,23 +66,56 @@ ds_pct = retrieve_PCT(ds)  # ds.gpm.retrieve("polarization_corrected_temperature
 # Retrieve RGB composites
 ds_rgb = retrieve_rgb_composites(ds)  # ds.gpm.retrieve("rgb_composites")
 
+# Compute frequency ratio
+# TODO: extract function
+feature_columns = TC_COLUMNS
+tc_denom = "Tc_19H"
+freq_denom = tc_denom.removeprefix("Tc_")
+pmw_denom = get_pmw_channel(ds, name=freq_denom)
+
+dict_ratio = {name: (get_pmw_channel(ds, name=name.removeprefix("Tc_")) / pmw_denom).rename(f"{name}/{tc_denom}")
+              for name in TC_COLUMNS if name != tc_denom}
+ds_ratio = xr.merge(dict_ratio.values(), compat="minimal")
+
+tc_columns_to_plot = ["Tc_19V", "Tc_19H", "Tc_37V", "Tc_37H", "Tc_89V", "Tc_89H"]
+pd_columns_to_plot = ["PD_19", "PD_37", "PD_89"]
+ratio_columns_to_plot = ["Tc_37H/Tc_19H", "Tc_89H/Tc_19H"]
+
+tc_range = (100, 305)
+pd_range = (-5, 85)
+ratio_range = (0.5, 2)
+
+base_cbar_kwargs = {"orientation": "horizontal", "pad": 0.4}
+tc_cbar_kwargs = base_cbar_kwargs
+pd_cbar_kwargs = base_cbar_kwargs
+ratio_cbar_kwargs = dict(base_cbar_kwargs, **{"label": "Brightness Temperature Ratio [1]"})
+
 # Plot features
-for var, ds_var in [(VARIABLE_TC, ds_tc), ("PD", ds_pd), ("FD", ds_fd)]:
-    cbar_kwargs = {"orientation": "horizontal"}
-    plot_kwargs = {"axes_pad": (0.1, 1)}
+for var, ds_var, columns_to_plot, col_wrap, cbar_kwargs, var_range in [
+    (VARIABLE_TC, ds_tc, tc_columns_to_plot, 2, tc_cbar_kwargs, tc_range),
+    ("PD", ds_pd, pd_columns_to_plot, 3, pd_cbar_kwargs, pd_range),
+    ("Ratio", ds_ratio, ratio_columns_to_plot, 2, ratio_cbar_kwargs, ratio_range)
+]:
+    n_cols = col_wrap
+    n_rows = (len(columns_to_plot) + n_cols - 1) // n_cols
+    plot_kwargs = {"axes_pad": (0.2, 0.2)}
+    ds_var = ds_var[columns_to_plot]
     fc = ds_var.to_array(dim=var, name=var).gpm.plot_map(
         col=var,
-        col_wrap=4,
-        # vmax=20,
-        # vmin=-2,
+        col_wrap=col_wrap,
+        vmin=var_range[0],
+        vmax=var_range[1],
+        fig_kwargs={"figsize": (n_cols * 3 + 1, n_rows * 3 + 1)},
         cbar_kwargs=cbar_kwargs,
-        axes_pad=(0.1, 0.5),
+        axes_pad=(0.1, 0.4),
     )
     fc.remove_title_dimension_prefix()
+    fc.fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.1, wspace=0.1, hspace=0.1)
     # TODO: why is `ds.gpm.crop(extent)` not enough?
     fc.set_extent(extent)
+
     if SAVEFIG_FLAG:
-        plt.savefig(pathlib.Path(SAVEFIG_DIR) / f"hurricane_{var}.png")
+        plt.savefig(pathlib.Path(SAVEFIG_DIR) / f"{prefix}_{var}.png")
     plt.show()
 
 # Convert xarray Dataset to pandas DataFrame

@@ -3,7 +3,7 @@ This module contains utilities for analyzing quantized transformed data.
 """
 import argparse
 import pathlib
-from typing import Optional, List
+from typing import Optional, List, Callable
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -22,6 +22,7 @@ from pmw_analysis.constants import (
     TC_COLUMNS, ST_COLUMNS,
 )
 from pmw_analysis.quantization.dataframe_polars import filter_surface_type, expand_occurrence_column
+from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.pyplot import finalize_axis
 
 
@@ -84,7 +85,7 @@ def plot_point_accumulation(path: pathlib.Path, var: Optional[str]):
         fig.savefig(images_path / filename)
 
 
-def analyze(path: pathlib.Path, var: Optional[str]):
+def analyze(path: pathlib.Path, var: Optional[str], transform: Callable):
     """
     Generate pairplots of features for a given dataset.
 
@@ -98,7 +99,7 @@ def analyze(path: pathlib.Path, var: Optional[str]):
     """
     df_merged = pl.read_parquet(path)
 
-    feature_columns = TC_COLUMNS
+    feature_columns = transform(TC_COLUMNS)
 
     df = df_merged[feature_columns + ["surfaceTypeIndex", "count"]]
     # df = df[:10000]  # for testing
@@ -198,7 +199,7 @@ def _analyze_surface_type_group(df, feature_columns, group, var, min_vals, max_v
     if var is not None:
         cmap = "viridis"
 
-    hists_mtx = _calculate_pairplots_concat_matrix(df_to_use, min_vals, max_vals, n_bins, var)
+    hists_mtx = _calculate_pairplots_concat_matrix(df_to_use, feature_columns, min_vals, max_vals, n_bins, var)
 
     hists_path = pathlib.Path("hists") / images_path.name
     hists_path.mkdir(parents=True, exist_ok=True)
@@ -211,19 +212,13 @@ def _analyze_surface_type_group(df, feature_columns, group, var, min_vals, max_v
         vmax = max(hists_mtx.max(), 1)
         norm = LogNorm(vmin=vmin, vmax=vmax)
     else:
-        vmin = None
-        vmax = np.percentile(hists_mtx, 99)  # TODO
         norm = None
 
-    fig, ax = plt.subplots(1, 1, figsize=(3 * len(feature_columns) + 3, 3 * len(feature_columns)))
-    sns.heatmap(hists_mtx, vmin=vmin, vmax=vmax, cmap=cmap, norm=norm, annot=False, ax=ax)
+    fig, ax = plt.subplots(1, 1, figsize=(4 * len(feature_columns) + 4, 4 * len(feature_columns)))
+    _plot_heatmap_with_varying_cell_sizes(hists_mtx, n_bins, cmap, norm, ax, min_vals, max_vals)
 
-    x_ticks, y_ticks, x_tick_labels, y_tick_labels = _get_ticks_for_pairplots_concat(n_bins, min_vals, max_vals)
-    ax.set_xticks(x_ticks, x_tick_labels, fontsize=7, rotation=90)
-    ax.set_yticks(y_ticks, y_tick_labels, fontsize=7, rotation=0)
-
-    x_label, x_label_fontsize = _get_histograms2d_label(fig, ax, feature_columns, n_bins)
-    y_label, y_label_fontsize = _get_histograms2d_label(fig, ax, feature_columns[::-1], n_bins, use_height=True)
+    x_label, x_label_fontsize = _get_histograms2d_label(fig, ax, feature_columns)
+    y_label, y_label_fontsize = _get_histograms2d_label(fig, ax, feature_columns[::-1], use_height=True)
     ax.set_xlabel(x_label, fontsize=x_label_fontsize)
     ax.set_ylabel(y_label, fontsize=y_label_fontsize)
 
@@ -235,6 +230,44 @@ def _analyze_surface_type_group(df, feature_columns, group, var, min_vals, max_v
     else:
         fig.suptitle("All Surfaces" + title_suffix, fontsize=30)
         fig.savefig(images_path / f"count_{group_name}_{len(feature_columns)}.png")
+
+
+def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, n_bins: np.ndarray,
+                                          cmap, norm, ax: plt.Axes, min_vals, max_vals):
+    xs = np.ones(n_bins.sum())
+    n_bins_cumsum = np.cumsum(n_bins)
+    n_bins_cumsum = np.insert(n_bins_cumsum, 0, 0)
+    lines = n_bins.min() * np.arange(len(n_bins) + 1)
+    for i, (n, offset) in enumerate(zip(n_bins, n_bins_cumsum)):
+        xs[offset:offset + n] *= n_bins.min() / n
+    xs = np.cumsum(xs)
+    bounds = (xs[:-1] + xs[1:]) / 2
+    bounds = np.concatenate([[2 * bounds[0] - bounds[1]], bounds, [2 * bounds[-1] - bounds[-2]]])
+
+    c = ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx[::-1], cmap=cmap, norm=norm)
+    ax.vlines(lines[1:-1], ymin=lines[0], ymax=lines[-1], colors='black')
+    ax.hlines(lines[1:-1], xmin=lines[0], xmax=lines[-1], colors='black')
+
+    n_ticks = 15
+    x_tick_labels = np.concatenate([np.round(np.linspace(min_val, max_val, n_ticks + 1)[1:], decimals=2)
+                                    for min_val, max_val
+                                    in zip(min_vals, max_vals)])
+    y_tick_labels = np.concatenate([np.round(np.linspace(min_val, max_val, n_ticks + 1)[1:], decimals=2)[::-1]
+                                    for min_val, max_val
+                                    in zip(min_vals, max_vals)])
+    x_ticks = np.ones(n_ticks * len(n_bins)) * n_bins.min() / n_ticks
+
+    x_ticks = np.cumsum(x_ticks)
+    y_ticks = x_ticks[::-1]
+
+    ax.set_xticks(x_ticks, x_tick_labels, fontsize=10, rotation=90)
+    ax.set_yticks(y_ticks, y_tick_labels, fontsize=10, rotation=0)
+
+    ax.set_xlim((bounds[0], bounds[-1]))
+    ax.set_ylim((bounds[0], bounds[-1]))
+
+    cb = plt.colorbar(c, ax=ax)
+    cb.ax.tick_params(labelsize=15)
 
 
 def _plot_hist(value_count_pd: pd.DataFrame, tc_col, group_name, images_path: pathlib.Path):
@@ -249,14 +282,15 @@ def _plot_hist(value_count_pd: pd.DataFrame, tc_col, group_name, images_path: pa
     fig.savefig(images_path / f"{tc_col}_{group_name}.png")
 
 
-def _calculate_pairplots_concat_matrix(df: pl.DataFrame, min_vals: np.ndarray, max_vals: np.ndarray, n_bins: np.ndarray,
+def _calculate_pairplots_concat_matrix(df: pl.DataFrame, feature_columns: List[str],
+                                       min_vals: np.ndarray, max_vals: np.ndarray, n_bins: np.ndarray,
                                        var: Optional[str]):
     n_bins_cumsum = np.cumsum(n_bins)
     n_bins_cumsum = np.insert(n_bins_cumsum, 0, 0)
 
     hists_mtx = np.zeros((n_bins_cumsum[-1], n_bins_cumsum[-1]))
-    for idx1, tc_col1 in tqdm(enumerate(TC_COLUMNS)):
-        for idx2, tc_col2 in enumerate(TC_COLUMNS[:idx1 + 1]):
+    for idx1, tc_col1 in tqdm(enumerate(feature_columns)):
+        for idx2, tc_col2 in enumerate(feature_columns[:idx1 + 1]):
             cols = [tc_col1] if idx1 == idx2 else [tc_col1, tc_col2]
 
             counts = df.select(cols + [COLUMN_COUNT]).group_by(cols, maintain_order=False).sum()
@@ -280,25 +314,12 @@ def _calculate_pairplots_concat_matrix(df: pl.DataFrame, min_vals: np.ndarray, m
             hists_mtx[range1[0]: range1[1], range2[0]: range2[1]] = hist
             if idx1 == idx2:
                 continue
-            hists_mtx[range2[0]: range2[1], range1[0]: range1[1]] = hist.T
+            hists_mtx[range2[0]: range2[1], range1[0]: range1[1]] = np.flipud(np.transpose(hist))[:, ::-1]
 
     return hists_mtx
 
 
-def _get_ticks_for_pairplots_concat(n_bins: np.ndarray, min_vals: np.ndarray, max_vals: np.ndarray, ):
-    x_ticks = np.linspace(0, n_bins.sum() - 1, n_bins.sum())
-    y_ticks = np.linspace(0, n_bins.sum() - 1, n_bins.sum())
-    x_tick_labels = np.concatenate([np.round(np.linspace(min_val, max_val, n_bin), decimals=1)
-                                    for min_val, max_val, n_bin
-                                    in zip(min_vals, max_vals, n_bins)])
-    y_tick_labels = np.concatenate([np.round(np.linspace(min_val, max_val, n_bin), decimals=1)[::-1]
-                                    for min_val, max_val, n_bin
-                                    in zip(min_vals, max_vals, n_bins)])
-
-    return x_ticks, y_ticks, x_tick_labels, y_tick_labels
-
-
-def _get_histograms2d_label(fig: plt.Figure, ax: plt.Axes, columns: List[str], n_bins: List[int], use_height=False):
+def _get_histograms2d_label(fig: plt.Figure, ax: plt.Axes, columns: List[str], use_height=False):
     fig.canvas.draw()
     bbox = ax.get_window_extent()
     length_px = bbox.height if use_height else bbox.width
@@ -306,17 +327,17 @@ def _get_histograms2d_label(fig: plt.Figure, ax: plt.Axes, columns: List[str], n
     char_width_per_pt = 0.6
     max_title_width_pt = length_px / char_width_per_pt
 
-    approx_title_len = 2 * len("".join(columns))
+    k = 3
+    approx_title_len = k * len("".join(columns))
 
     font_size = max_title_width_pt / approx_title_len
-    n_bins = np.array(n_bins)
 
-    n_lens = n_bins / n_bins.sum() * approx_title_len
+    n_lens = np.ones(len(columns)) * approx_title_len / len(columns)
     n_lens = np.round(n_lens).astype(int)
 
     label = ""
     for i, column in enumerate(columns):
-        n_spaces = n_lens[i] - len(column)
+        n_spaces = n_lens[i] - (k - 1) * len(column) // k
         label += " " * (n_spaces // 2) + column + " " * (n_spaces - n_spaces // 2)
 
     return label, font_size
@@ -325,7 +346,8 @@ def _get_histograms2d_label(fig: plt.Figure, ax: plt.Axes, columns: List[str], n
 def main():
     parser = argparse.ArgumentParser(description="Analyse quantized PMW features")
     subparsers = parser.add_subparsers(dest="analysis", required=True, help="Analysis to perform")
-    parser.add_argument("--transform", "-t", default="default", choices=["default", "pd", "ratio"],
+    parser.add_argument("--transform", "-t", default="default",
+                        choices=["default", "pd", "ratio", "v1", "v2", "v3"],
                         help="Type of transformation performed on data")
 
     pairplot_parser = subparsers.add_parser("pairplot", help="")
@@ -337,11 +359,12 @@ def main():
     args = parser.parse_args()
 
     path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / "final.parquet"
+    transform = get_transformation_function(args.transform)
 
     if args.analysis == "accum":
         plot_point_accumulation(path, args.var)
     elif args.analysis == "pairplot":
-        analyze(path, args.var)
+        analyze(path, args.var, transform)
 
 
 if __name__ == '__main__':

@@ -79,3 +79,12 @@ ST_GROUP_SNOW = ['Elevated snow cover',
                  'High snow cover',
                  'Moderate snow cover',
                  'Mountain snow']
+ST_GROUP_EDGES = ['Ocean or water Coast',
+                  'Mixed land/ocean or water coast',
+                  'Land coast',
+                  'Sea-ice edge']
+ST_GROUP_MISC = ['Sea-Ice',
+                 'Sparse vegetation',
+                 'Desert',
+                 'Light snow cover',
+                 'Standing Water']

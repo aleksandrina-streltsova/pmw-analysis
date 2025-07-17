@@ -9,7 +9,7 @@ def weighted_quantiles(value_count: pl.DataFrame, quantiles: List[float], value_
     Calculate weighted quantiles from a value-count DataFrame.
     """
     value_count = value_count.sort(value_col).with_columns(
-        pl.col(count_col).cum_sum().truediv(pl.col(count_col).sum()).alias("cumprob"),
+        pl.col(count_col).truediv(pl.col(count_col).cast(pl.UInt64).sum()).cum_sum().alias("cumprob"),
     )
 
     results = []

@@ -255,6 +255,28 @@ def v2_transform(obj):
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
+def v3_transform(obj):
+    if isinstance(obj, pl.DataFrame):
+        df = obj
+        df = df.with_columns(
+            pl.col(f"Tc_165V").sub(pl.col(f"Tc_165H")).alias("PD_165"),
+            pl.col(f"Tc_183V3").sub(pl.col(f"Tc_183V7")).alias("PD_183"),
+        )
+        df = df.drop([col for col in TC_COLUMNS if col not in ["Tc_23V", "Tc_165V", "Tc_183V3"]])
+        return df
+
+    if isinstance(obj, Dict):
+        unc_dict = obj
+        unc_dict["PD_165"] = (unc_dict["Tc_165V"] + unc_dict["Tc_165H"]) / 2
+        unc_dict["PD_183"] = (unc_dict["Tc_183V3"] + unc_dict["Tc_183V7"]) / 2
+        return unc_dict
+
+    if isinstance(obj, List):
+        return ["Tc_23V", "Tc_165V", "PD_165", "Tc_183V3", "PD_183"]
+
+    raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
+
+
 def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     """
     Estimate a factor which uncertainty should be multiplied by during quantization.
@@ -355,6 +377,9 @@ def _get_ranges_dict(dirs: List[str], plot_hists: bool = False) -> Dict[str, flo
                 ax.vlines([q_min, q_max], ymin=y_min, ymax=y_max, colors="r")
 
                 fig.show()
+    # TODO: fix
+    ranges_dict["PD_183_min"] = -np.inf
+    ranges_dict["PD_183_max"] = np.inf
     return ranges_dict
 
 
@@ -367,6 +392,8 @@ def get_transformation_function(arg_transform: str) -> Callable:
         transform = v1_transform
     elif arg_transform == "v2":
         transform = v2_transform
+    elif arg_transform == "v3":
+        transform = v3_transform
     else:
         transform = lambda x: x
 
@@ -381,7 +408,7 @@ def main():
     parser.add_argument("--step", "-s", default="factor", choices=["factor", "quantize", "merge"],
                         help="Quantization pipeline's step to perform")
     parser.add_argument("--transform", "-t", default="default",
-                        choices=["default", "pd", "ratio", "v1", "v2"],
+                        choices=["default", "pd", "ratio", "v1", "v2", "v3"],
                         help="Type of transformation to perform on data")
 
     args = parser.parse_args()
