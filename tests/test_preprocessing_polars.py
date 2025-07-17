@@ -1,73 +1,67 @@
+"""
+This module contains tests for data preprocessing functionalities.
+"""
 import datetime
 import unittest
-from typing import Dict, List
+from typing import Dict, List, Sequence
 
 import numpy as np
 import polars as pl
 
 from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_OCCURRENCE, TC_COLUMNS
-from pmw_analysis.quantization.dataframe_polars import _round, _get_tc_columns, _get_flag_columns, _get_periodic_columns, \
-    _get_special_columns, _get_special_dict, _aggregate, _get_periodic_dict, merge_quantized_pmw_features, \
+from pmw_analysis.quantization.dataframe_polars import _round, _get_tc_columns, \
+    _get_special_dict, _aggregate, _get_periodic_dict, merge_quantized_pmw_features, \
     DataFrameQuantizationInfo
 
 
-def _get_test_columns():
+def _get_test_columns() -> Sequence[str]:
     return [
-        'incidenceAngle_LF', 'sunGlintAngle_LF', 'SClatitude', 'Quality_LF', 'sunLocalTime', 'SCorientation', 'lon',
-        'lat', 'day', 'incidenceAngle_HF', 'sunGlintAngle_HF', 'Quality_HF', 'Tc_10H', 'Tc_10V', 'Tc_165H',
+        'L1CqualityFlag', 'Quality_HF', 'Quality_LF', 'SClatitude', 'SCorientation', 'Tc_10H', 'Tc_10V', 'Tc_165H',
         'Tc_165V', 'Tc_183V3', 'Tc_183V7', 'Tc_19H', 'Tc_19V', 'Tc_23V', 'Tc_37H', 'Tc_37V', 'Tc_89H', 'Tc_89V',
-        'L1CqualityFlag', 'airmassLiftIndex', 'cloudWaterPath', 'convectivePrecipitation', 'frozenPrecipitation',
-        'iceWaterPath', 'mostLikelyPrecipitation', 'pixelStatus', 'precip1stTertial', 'precip2ndTertial',
-        'precipitationYesNoFlag', 'probabilityOfPrecip', 'qualityFlag', 'rainWaterPath', 'surfacePrecipitation',
-        'surfaceTypeIndex', 'temp2mIndex', 'totalColumnWaterVaporIndex'
+        'airmassLiftIndex', 'cloudWaterPath', 'convectivePrecipitation', 'day', 'frozenPrecipitation', 'gpm_id',
+        'iceWaterPath', 'incidenceAngle_HF', 'incidenceAngle_LF', 'lat', 'lon', 'mostLikelyPrecipitation',
+        'pixelStatus', 'precip1stTertial', 'precip2ndTertial', 'precipitationYesNoFlag', 'probabilityOfPrecip',
+        'qualityFlag', 'rainWaterPath', 'sunGlintAngle_HF', 'sunGlintAngle_LF', 'sunLocalTime', 'surfacePrecipitation',
+        'surfaceTypeIndex', 'temp2mIndex', 'time', 'totalColumnWaterVaporIndex'
     ]
+
+
+def _get_agg_off_columns() -> Sequence[str]:
+    return ['gpm_id', 'lon', 'time']
 
 
 def _create_single_row() -> pl.DataFrame:
     columns = _get_test_columns()
-    tc_cols = _get_tc_columns(columns)
-    flag_cols = _get_flag_columns(columns)
-    periodic_cols = _get_periodic_columns(columns)
-    special_cols = _get_special_columns(columns)
-
-    tc = {col: 0. for col in tc_cols}
-    flag = {col: 0 for col in flag_cols}
-    periodic = {col: 0. for col in periodic_cols}
-    special = {col: 0. for col in special_cols}
-    other = {
-        col: 0. for col in columns
-        if col not in tc_cols + flag_cols + periodic_cols + special_cols
-    }
-
-    df = pl.DataFrame(
-        {**tc, **flag, **periodic, **special, **other, COLUMN_OCCURRENCE: datetime.datetime(2000, 1, 1, 0, 0, 0)})
+    df = pl.DataFrame({**{col: 0. for col in columns},
+                       COLUMN_OCCURRENCE: datetime.datetime(2000, 1, 1, 0, 0, 0)})
     return df
 
 
 def _create_single_row_aggregated() -> pl.DataFrame:
     columns = _get_test_columns()
-    tc_cols = _get_tc_columns(columns)
-    flag_cols = _get_flag_columns(columns)
-    periodic_cols = _get_periodic_columns(columns)
-    special_cols = _get_special_columns(columns)
-    other_cols = [col for col in columns if col not in tc_cols + flag_cols + periodic_cols + special_cols]
+    tc_columns = _get_tc_columns(columns)
+    agg_off_columns = _get_agg_off_columns()
+
+    info = DataFrameQuantizationInfo.create(columns, tc_columns, agg_off_columns=agg_off_columns)
 
     special_dict = _get_special_dict()
 
-    tc = {col: 0. for col in tc_cols}
-    flag = {col: [[]] for col in flag_cols}
+    tc = {col: 0. for col in tc_columns}
+    flag = {col: [[]] for col in info.flag_columns}
 
     periodic = {k: v
-                for col in periodic_cols
+                for col in info.periodic_columns
                 for k, v in {f"{col}_lt": 0., f"{col}_lt_count": 0, f"{col}_gt": 0., f"{col}_gt_count": 0}.items()}
 
     special = {k: v
-               for col in special_cols
+               for col in info.special_columns
                for k, v in {col: 0., f"{col}_{special_dict[col][1]}_count": 0, f"{col}_count": 0}.items()}
 
-    other = {k: v
-             for col in other_cols
-             for k, v in {col: 0., f"{col}_count": 0.}.items()}
+    agg_off = {col: [[0.]] for col in info.agg_off_columns}
+
+    agg_mean = {k: v
+                for col in info.get_agg_mean_columns(columns)
+                for k, v in {col: 0., f"{col}_count": 0.}.items()}
 
     df = pl.DataFrame(data={
         **tc,
@@ -75,7 +69,8 @@ def _create_single_row_aggregated() -> pl.DataFrame:
         **periodic,
         **special,
         **special,
-        **other,
+        **agg_off,
+        **agg_mean,
         COLUMN_OCCURRENCE: datetime.datetime(2000, 1, 1, 0, 0, 0),
         COLUMN_COUNT: 0,
     }).with_columns([
@@ -83,21 +78,37 @@ def _create_single_row_aggregated() -> pl.DataFrame:
         .cast(pl.List(pl.Struct([
             pl.Field(flag_col, pl.Int16),
             pl.Field(STRUCT_FIELD_COUNT, pl.Int64)
-        ]))) for flag_col in flag_cols
+        ]))) for flag_col in info.flag_columns
     ])
     return df
 
 
 def _append_struct(df: pl.DataFrame, structs: List[Dict], column: str, row: int):
     df = df.with_columns(
-        pl.when(pl.arange(0, pl.count()) == row)
+        pl.when(pl.arange(0, pl.len()) == row)
         .then(pl.col(column).list.concat(pl.lit(structs, dtype=pl.List(pl.Struct))))
         .otherwise(pl.col(column))
     )
     return df
 
+
+def _assign_value(df, value, col, row):
+    return df.with_columns(
+        pl.when(pl.arange(0, pl.len()) == row)
+        .then(value)
+        .otherwise(pl.col(col))
+        .alias(col)
+    )
+
+
 class PreprocessingPolarsTestCase(unittest.TestCase):
+    """
+    Unit test case class for testing data preprocessing functionalities.
+    """
     def test_round(self) -> None:
+        """
+        Unit test for verifying the correctness of the `pmw_analysis.quantization.dataframe_polars._round` function.
+        """
         tc_columns = _get_tc_columns(_get_test_columns())
 
         df_before = _create_single_row()
@@ -120,21 +131,28 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
             df_after_expected[2, tc_columns[i]] = 0.5 + i * 1.5
         df_after_expected[2, tc_columns[n_tc - 1]] = (0.5 + (n_tc - 1) * 1.5) * 2
 
-        df_after_actual = _round(df_before, tc_columns, uncertainties, quant_ranges=None)
+        lf_before = df_before.lazy()
+        lf_after_actual = _round(lf_before, tc_columns, uncertainties, quant_ranges=None)
+
+        df_after_actual = lf_after_actual.collect()
 
         assert df_after_expected.equals(df_after_actual)
 
 
     def test_aggregate(self):
+        """
+        Unit test for verifying the correctness of the `pmw_analysis.quantization.dataframe_polars._aggregate` function.
+        """
         columns = _get_test_columns()
         tc_cols = _get_tc_columns(columns)
-        flag_cols = _get_flag_columns(columns)
-        periodic_cols = _get_periodic_columns(columns)
-        special_cols = _get_special_columns(columns)
-        other_cols = [col for col in columns if col not in tc_cols + flag_cols + periodic_cols + special_cols]
+        agg_off_columns = _get_agg_off_columns()
 
-        periodic_dict = _get_periodic_dict()
-        special_dict = _get_special_dict()
+        info = DataFrameQuantizationInfo.create(columns, tc_cols,
+                                                agg_off_columns=agg_off_columns,
+                                                periodic_dict=_get_periodic_dict(),
+                                                special_dict=_get_special_dict())
+
+        agg_mean_columns = info.get_agg_mean_columns(columns)
 
         #### df before aggregation ####
         n = 6
@@ -145,35 +163,43 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
                 df_before[j, tc_col] = i
         df_before[n - 1, tc_cols[0]] = 1
         # flag
-        for i, flag_col in enumerate(flag_cols):
+        for i, flag_col in enumerate(info.flag_columns):
             df_before[0, flag_col] = i
             df_before[1, flag_col] = i
             df_before[2, flag_col] = i
             df_before[3, flag_col] = i + 1
             df_before[4, flag_col] = None
-        df_before[0, flag_cols[0]] = -1
+        df_before[0, info.flag_columns[0]] = -1
         # periodic
-        for periodic_col in periodic_cols:
-            mid = periodic_dict[periodic_col]
+        for periodic_col in info.periodic_columns:
+            mid = info.periodic_dict[periodic_col]
             df_before[0, periodic_col] = mid - 1
             df_before[1, periodic_col] = mid - 1
             df_before[2, periodic_col] = mid
             df_before[3, periodic_col] = mid + 1
             df_before[4, periodic_col] = None
         # special
-        for i, special_col in enumerate(special_cols):
+        for i, special_col in enumerate(info.special_columns):
             df_before[0, special_col] = i
             df_before[1, special_col] = i + 1
-            df_before[2, special_col] = special_dict[special_col][0]
-            df_before[3, special_col] = special_dict[special_col][0]
+            df_before[2, special_col] = info.special_dict[special_col][0]
+            df_before[3, special_col] = info.special_dict[special_col][0]
             df_before[4, special_col] = None
-        # other
-        for i, other_col in enumerate(other_cols):
-            df_before[0, other_col] = i
-            df_before[1, other_col] = i
-            df_before[2, other_col] = i + 1
-            df_before[3, other_col] = None
-            df_before[4, other_col] = None
+        # agg_off
+        for i, agg_off_col in enumerate(info.agg_off_columns):
+            df_before[0, agg_off_col] = i
+            df_before[1, agg_off_col] = i
+            df_before[2, agg_off_col] = i
+            df_before[3, agg_off_col] = i + 1
+            df_before[4, agg_off_col] = None
+        df_before[0, info.agg_off_columns[0]] = -1
+        # agg_mean
+        for i, agg_mean_col in enumerate(agg_mean_columns):
+            df_before[0, agg_mean_col] = i
+            df_before[1, agg_mean_col] = i
+            df_before[2, agg_mean_col] = i + 1
+            df_before[3, agg_mean_col] = None
+            df_before[4, agg_mean_col] = None
         # time
         df_before[0, COLUMN_OCCURRENCE] = datetime.datetime(2020, 1, 1, 0, 0, 0)
         df_before[1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 2, 1, 0, 0, 0)
@@ -181,14 +207,6 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         df_before[3, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 0, 0, 0)
         df_before[4, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
         df_before[5, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
-
-        def append_struct(df: pl.DataFrame, structs: List[Dict], col: str, row: int):
-            df = df.with_columns(
-                pl.when(pl.arange(0, pl.count()) == row)
-                .then(pl.col(col).list.concat(pl.lit(structs, dtype=pl.List(pl.Struct))))
-                .otherwise(pl.col(col))
-            )
-            return df
 
         #### expected df after aggregation ####
         expected = pl.concat([_create_single_row_aggregated() for _ in range(2)])
@@ -198,23 +216,25 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
                 expected[j, tc_col] = i
         expected[1, tc_cols[0]] = 1
         # flag
-        for i, flag_col in enumerate(flag_cols):
+        for i, flag_col in enumerate(info.flag_columns):
             if i == 0:
-                expected = append_struct(expected,
-                                         [{flag_col: None, STRUCT_FIELD_COUNT: 1}, {flag_col: -1, STRUCT_FIELD_COUNT: 1},
-                                          {flag_col: i, STRUCT_FIELD_COUNT: 2}, {flag_col: i + 1, STRUCT_FIELD_COUNT: 1}],
-                                         flag_col,
-                                         0)
+                expected = _append_struct(expected,
+                                          [{flag_col: None, STRUCT_FIELD_COUNT: 1},
+                                           {flag_col: -1, STRUCT_FIELD_COUNT: 1},
+                                           {flag_col: i, STRUCT_FIELD_COUNT: 2},
+                                           {flag_col: i + 1, STRUCT_FIELD_COUNT: 1}],
+                                          flag_col, row=0)
             else:
-                expected = append_struct(expected,
-                                         [{flag_col: None, STRUCT_FIELD_COUNT: 1}, {flag_col: i, STRUCT_FIELD_COUNT: 3},
-                                          {flag_col: i + 1, STRUCT_FIELD_COUNT: 1}], flag_col, 0)
-            expected = append_struct(expected, [{flag_col: 0, STRUCT_FIELD_COUNT: 1}], flag_col, 1)
+                expected = _append_struct(expected,
+                                          [{flag_col: None, STRUCT_FIELD_COUNT: 1},
+                                           {flag_col: i, STRUCT_FIELD_COUNT: 3},
+                                           {flag_col: i + 1, STRUCT_FIELD_COUNT: 1}], flag_col, 0)
+            expected = _append_struct(expected, [{flag_col: 0, STRUCT_FIELD_COUNT: 1}], flag_col, 1)
         # periodic
-        for i, periodic_col in enumerate(periodic_cols):
-            expected[0, f"{periodic_col}_lt"] = periodic_dict[periodic_col] - 2 / 3
+        for i, periodic_col in enumerate(info.periodic_columns):
+            expected[0, f"{periodic_col}_lt"] = info.periodic_dict[periodic_col] - 2 / 3
             expected[0, f"{periodic_col}_lt_count"] = 3
-            expected[0, f"{periodic_col}_gt"] = periodic_dict[periodic_col] + 1
+            expected[0, f"{periodic_col}_gt"] = info.periodic_dict[periodic_col] + 1
             expected[0, f"{periodic_col}_gt_count"] = 1
 
             expected[1, f"{periodic_col}_lt"] = 0
@@ -222,18 +242,26 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
             expected[1, f"{periodic_col}_gt"] = None
             expected[1, f"{periodic_col}_gt_count"] = 0
         # special
-        for i, special_col in enumerate(special_cols):
+        for i, special_col in enumerate(info.special_columns):
             expected[0, special_col] = i + 0.5
-            expected[0, f"{special_col}_{special_dict[special_col][1]}_count"] = 2
+            expected[0, f"{special_col}_{info.special_dict[special_col][1]}_count"] = 2
             expected[0, f"{special_col}_count"] = 2
 
             expected[1, f"{special_col}_count"] = 1
+        # agg_off
+        for i, agg_off_col in enumerate(info.agg_off_columns):
+            if i == 0:
+                row0 = [-1, i, i, i + 1, None]
+            else:
+                row0 = [i, i, i, i + 1, None]
+            expected = _assign_value(expected, pl.lit(row0), agg_off_col, row=0)
+            expected = _assign_value(expected, pl.lit([0]), agg_off_col, row=1)
         # other
-        for i, other_col in enumerate(other_cols):
-            expected[0, other_col] = i + 1 / 3
-            expected[0, f"{other_col}_count"] = 3
+        for i, agg_mean_col in enumerate(agg_mean_columns):
+            expected[0, agg_mean_col] = i + 1 / 3
+            expected[0, f"{agg_mean_col}_count"] = 3
 
-            expected[1, f"{other_col}_count"] = 1
+            expected[1, f"{agg_mean_col}_count"] = 1
         # time
         expected[0, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 0, 0, 0)
         expected[1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
@@ -241,19 +269,11 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         expected[0, COLUMN_COUNT] = n - 1
         expected[1, COLUMN_COUNT] = 1
 
-        info = DataFrameQuantizationInfo(
-            quant_columns=tc_cols,
-            flag_columns=flag_cols,
-            periodic_columns=periodic_cols,
-            special_columns=special_cols,
-            agg_min_columns=[COLUMN_OCCURRENCE],
-            periodic_dict=periodic_dict,
-            special_dict=special_dict,
-        )
-        actual = _aggregate(df_before, info)
+        lf_before = df_before.lazy()
+        actual = _aggregate(lf_before, info).collect()
         actual = actual.with_columns([
             pl.col(flag_col).list.sort()
-            for flag_col in flag_cols
+            for flag_col in info.flag_columns
         ])
         actual = actual.sort(by=COLUMN_COUNT, descending=True)
 
@@ -264,15 +284,20 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
 
 
     def test_merge(self):
+        """
+        Unit test for verifying the correctness of the
+        `pmw_analysis.quantization.dataframe_polars.merge_quantized_pmw_features` function.
+        """
         columns = _get_test_columns()
         tc_cols = _get_tc_columns(columns)
-        flag_cols = _get_flag_columns(columns)
-        periodic_cols = _get_periodic_columns(columns)
-        special_cols = _get_special_columns(columns)
-        other_cols = [col for col in columns if col not in tc_cols + flag_cols + periodic_cols + special_cols]
+        agg_off_columns = _get_agg_off_columns()
 
-        periodic_dict = _get_periodic_dict()
-        special_dict = _get_special_dict()
+        info = DataFrameQuantizationInfo.create(columns, tc_cols,
+                                                agg_off_columns=agg_off_columns,
+                                                periodic_dict=_get_periodic_dict(),
+                                                special_dict=_get_special_dict())
+
+        agg_mean_columns = info.get_agg_mean_columns(columns)
 
         #### dfs before merging ####
         n = 6
@@ -288,7 +313,7 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
                     dfs[k][j, tc_col] = i
                 dfs[k][1, tc_cols[0]] = k + 1
             # flag
-            for i, flag_col in enumerate(flag_cols):
+            for i, flag_col in enumerate(info.flag_columns):
                 if i == 0:
                     dfs[k] = _append_struct(
                         dfs[k],
@@ -314,10 +339,10 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
                     )
                 dfs[k] = _append_struct(dfs[k], [{flag_col: 0, STRUCT_FIELD_COUNT: 1 * (k + 1)}], flag_col, 1)
             # periodic
-            for i, periodic_col in enumerate(periodic_cols):
-                dfs[k][0, f"{periodic_col}_lt"] = periodic_dict[periodic_col] - 1.5 - 3 * k
+            for i, periodic_col in enumerate(info.periodic_columns):
+                dfs[k][0, f"{periodic_col}_lt"] = info.periodic_dict[periodic_col] - 1.5 - 3 * k
                 dfs[k][0, f"{periodic_col}_lt_count"] = 3 * (k + 1)
-                dfs[k][0, f"{periodic_col}_gt"] = periodic_dict[periodic_col] + 1.5 + 3 * k
+                dfs[k][0, f"{periodic_col}_gt"] = info.periodic_dict[periodic_col] + 1.5 + 3 * k
                 dfs[k][0, f"{periodic_col}_gt_count"] = 1 * (k + 1)
 
                 dfs[k][1, f"{periodic_col}_lt"] = 0
@@ -325,18 +350,26 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
                 dfs[k][1, f"{periodic_col}_gt"] = None
                 dfs[k][1, f"{periodic_col}_gt_count"] = 0
             # special
-            for i, special_col in enumerate(special_cols):
+            for i, special_col in enumerate(info.special_columns):
                 dfs[k][0, special_col] = i + 0.5 + 3 * k
-                dfs[k][0, f"{special_col}_{special_dict[special_col][1]}_count"] = 2 * (k + 1)
+                dfs[k][0, f"{special_col}_{info.special_dict[special_col][1]}_count"] = 2 * (k + 1)
                 dfs[k][0, f"{special_col}_count"] = 2 * (k + 1)
 
                 dfs[k][1, f"{special_col}_count"] = 1 * (k + 1)
-            # other
-            for i, other_col in enumerate(other_cols):
-                dfs[k][0, other_col] = i + 0.25 + 3 * k
-                dfs[k][0, f"{other_col}_count"] = 3 * (k + 1)
+            # agg_off
+            for i, agg_off_col in enumerate(info.agg_off_columns):
+                if i == 0:
+                    row0 = [-1, i, i, i + 1, None] * (k + 1)
+                else:
+                    row0 = [i, i, i, i + 1, None] * (k + 1)
+                dfs[k] = _assign_value(dfs[k], pl.lit(row0), agg_off_col, row=0)
+                dfs[k] = _assign_value(dfs[k], pl.lit([0] * (k + 1)), agg_off_col, row=1)
+            # agg_mean
+            for i, agg_mean_col in enumerate(agg_mean_columns):
+                dfs[k][0, agg_mean_col] = i + 0.25 + 3 * k
+                dfs[k][0, f"{agg_mean_col}_count"] = 3 * (k + 1)
 
-                dfs[k][1, f"{other_col}_count"] = 1 * (k + 1)
+                dfs[k][1, f"{agg_mean_col}_count"] = 1 * (k + 1)
             # count
             dfs[k][0, COLUMN_COUNT] = (n - 1) * (k + 1)
             dfs[k][1, COLUMN_COUNT] = k + 1
@@ -353,7 +386,7 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
             expected[1, tc_cols[0]] = 1
             expected[2, tc_cols[0]] = 2
         # flag
-        for i, flag_col in enumerate(flag_cols):
+        for i, flag_col in enumerate(info.flag_columns):
             if i == 0:
                 expected = _append_struct(
                     expected,
@@ -381,10 +414,10 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
             expected = _append_struct(expected, [{flag_col: 0, STRUCT_FIELD_COUNT: 1 * 1}], flag_col, 1)
             expected = _append_struct(expected, [{flag_col: 0, STRUCT_FIELD_COUNT: 1 * 2}], flag_col, 2)
         # periodic
-        for i, periodic_col in enumerate(periodic_cols):
-            expected[0, f"{periodic_col}_lt"] = periodic_dict[periodic_col] - 1.5 - 2
+        for i, periodic_col in enumerate(info.periodic_columns):
+            expected[0, f"{periodic_col}_lt"] = info.periodic_dict[periodic_col] - 1.5 - 2
             expected[0, f"{periodic_col}_lt_count"] = 3 * 3
-            expected[0, f"{periodic_col}_gt"] = periodic_dict[periodic_col] + 1.5 + 2
+            expected[0, f"{periodic_col}_gt"] = info.periodic_dict[periodic_col] + 1.5 + 2
             expected[0, f"{periodic_col}_gt_count"] = 1 * 3
 
             for k in range(len(dfs)):
@@ -393,20 +426,29 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
                 expected[k + 1, f"{periodic_col}_gt"] = np.NaN
                 expected[k + 1, f"{periodic_col}_gt_count"] = 0
         # special
-        for i, special_col in enumerate(special_cols):
+        for i, special_col in enumerate(info.special_columns):
             expected[0, special_col] = i + 0.5 + 2
-            expected[0, f"{special_col}_{special_dict[special_col][1]}_count"] = 2 * 3
+            expected[0, f"{special_col}_{info.special_dict[special_col][1]}_count"] = 2 * 3
             expected[0, f"{special_col}_count"] = 2 * 3
 
             for k in range(len(dfs)):
                 expected[k + 1, f"{special_col}_count"] = 1 * (k + 1)
-        # other
-        for i, other_col in enumerate(other_cols):
-            expected[0, other_col] = i + 0.25 + 2
-            expected[0, f"{other_col}_count"] = 3 * 3
+        # agg_off
+        for i, agg_off_col in enumerate(info.agg_off_columns):
+            if i == 0:
+                row0 = [-1, 0, 0, 1, None] * 3
+            else:
+                row0 = [i, i, i, i + 1, None] * 3
+            expected = _assign_value(expected, pl.lit(row0), agg_off_col, row=0)
+            expected = _assign_value(expected, pl.lit([0]), agg_off_col, row=1)
+            expected = _assign_value(expected, pl.lit([0, 0]), agg_off_col, row=2)
+        # agg_mean
+        for i, agg_mean_col in enumerate(agg_mean_columns):
+            expected[0, agg_mean_col] = i + 0.25 + 2
+            expected[0, f"{agg_mean_col}_count"] = 3 * 3
 
             for k in range(len(dfs)):
-                expected[k + 1, f"{other_col}_count"] = 1 * (k + 1)
+                expected[k + 1, f"{agg_mean_col}_count"] = 1 * (k + 1)
         # count
         expected[0, COLUMN_COUNT] = (n - 1) * 3
         for k in range(len(dfs)):
@@ -416,10 +458,11 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         for k in range(len(dfs)):
             expected[k + 1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
 
-        actual = merge_quantized_pmw_features(dfs, TC_COLUMNS)
+        lfs = map(lambda df: df.lazy(), dfs)
+        actual = merge_quantized_pmw_features(lfs, TC_COLUMNS, agg_off_columns).collect()
         actual = actual.with_columns([
             pl.col(flag_col).list.sort()
-            for flag_col in flag_cols
+            for flag_col in info.flag_columns
         ])
         actual = actual.sort(by="Tc_10H")
 

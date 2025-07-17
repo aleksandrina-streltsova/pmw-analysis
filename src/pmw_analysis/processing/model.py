@@ -5,7 +5,7 @@ import argparse
 import logging
 import pathlib
 import pickle
-from typing import Callable
+from typing import Callable, Tuple, Any
 
 import hdbscan
 import joblib
@@ -39,42 +39,66 @@ CLUSTER_HDBSCAN = "hdbscan"
 
 
 class ClusterModel:
+    """
+    A machine learning pipeline which combines a scaler, dimensionality reducer, and a clustering model.
+    """
     def __init__(self, scaler, reducer, clusterer):
         self.scaler = scaler
         self.reducer = reducer
         self.clusterer = clusterer
 
     def predict(self, features):
+        """
+        Perform clusterization pipeline on the input data.
+        """
         features_scaled = self.scaler.transform(features)
         features_reduced = self.reducer.transform(features_scaled)
         labels = self.clusterer.predict(features_reduced)
         return labels
 
     def save(self, path):
+        """
+        Save the model to the specified path.
+        """
         joblib.dump(self, path)
 
     @staticmethod
     def load(path):
+        """
+        Load the model from the specified path.
+        """
         return joblib.load(path)
 
 
 class CLusterIndexModel:
+    """
+    A clustering model which clusters data using nearest neighbors search with a precomputed index.
+    """
     def __init__(self, index_train, labels_train):
         self.index_train = index_train
         self.labels_train = labels_train
 
     def predict(self, features_reduced):
+        """
+        Perform clusterization on the input data using nearest neighbor search.
+        """
         indices = self.index_train.search(features_reduced, k=1)[1].flatten()
         labels = self.labels_train[indices]
         return labels
 
 
 class DimensionalityReductionIndexModel:
+    """
+    A dimensionality reduction model which reduces data using nearest neighbors search with a precomputed index.
+    """
     def __init__(self, index_train, embeddings_train):
         self.index_train = index_train
         self.embeddings_train = embeddings_train
 
     def transform(self, features_reduced):
+        """
+        Perform dimensionality reduction on the input data using nearest neighbor search.
+        """
         indices = self.index_train.search(features_reduced, k=1)[1].flatten()
         embeddings = self.embeddings_train[indices]
         return embeddings
@@ -83,7 +107,7 @@ class DimensionalityReductionIndexModel:
 def _umap_fit_transform(features: pl.DataFrame,
                         n_components: int, max_iter: int,
                         n_neighbors: int, min_dist: float,
-                        knn_path: pathlib.Path):
+                        knn_path: pathlib.Path) -> Tuple[Any, Any]:
     if not knn_path.exists():
         mnist_knn = nearest_neighbors(features,
                                       n_neighbors=200,
@@ -121,7 +145,7 @@ def _umap_fit_transform(features: pl.DataFrame,
     features_reduced = reducer_base.fit_transform(features)
 
     index = faiss.IndexFlatL2(features.shape[1])
-    index.add(features)
+    index.add(features.shape[0], features)
 
     reducer = DimensionalityReductionIndexModel(index, features_reduced)
     return features_reduced, reducer
@@ -203,12 +227,12 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
             clusterer_base = hdbscan.HDBSCAN(min_cluster_size=100, prediction_data=True)
             clusterer_base.fit(features_train_reduced)
 
-            labels_train, _ = hdbscan.approximate_predict(clusterer_base, features_train_reduced)
+            labels_train = hdbscan.approximate_predict(clusterer_base, features_train_reduced)[0]
             non_noisy_data = features_train_reduced[labels_train != -1]
             non_noisy_labels = labels_train[labels_train != -1]
 
             index = faiss.IndexFlatL2(non_noisy_data.shape[1])
-            index.add(non_noisy_data)
+            index.add(non_noisy_data.shape[0], non_noisy_data)
 
             clusterer = CLusterIndexModel(index, non_noisy_labels)
             n_clusters = labels_train.max() + 1
@@ -234,7 +258,7 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
     # density plot
     file_path = dir_path / f'{reduction}_{clusterization}_count.png'
     hist_data_count = [
-        HistogramData(data=features_reduced, weight=df[COLUMN_COUNT], title=f"All surfaces", alpha=1.0,
+        HistogramData(data=features_reduced, weight=df[COLUMN_COUNT], title="All surfaces", alpha=1.0,
                       cmap="rocket_r", color=None, x_label="Component 1", y_label="Component 2")
     ]
     plot_histograms2d(hist_data_count, path=file_path, title=reduction.upper(),
@@ -275,7 +299,8 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
         hist_datas_ref.append(HistogramData(data=df_to_use[["x", "y"]], weight=df_to_use[COLUMN_COUNT], title=name,
                                             alpha=0.8, cmap=None, color=color,
                                             x_label="Component 1", y_label="Component 2"))
-    plot_histograms2d(hist_datas_ref, file_path, title="Reference", bins=N_BINS, use_log_norm=use_log_norm, use_shared_norm=False)
+    plot_histograms2d(hist_datas_ref, file_path, title="Reference", bins=N_BINS,
+                      use_log_norm=use_log_norm, use_shared_norm=False)
 
 
 def main():

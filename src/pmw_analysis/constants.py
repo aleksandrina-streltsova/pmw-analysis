@@ -11,6 +11,8 @@ COLUMN_TIME_FRACTION = "time_fraction"
 COLUMN_SUFFIX_DOMINANT_CYCLE = "_dominant_cycle"
 COLUMN_LON = "lon"
 COLUMN_LAT = "lat"
+COLUMN_GPM_ID = "gpm_id"
+COLUMN_GPM_CROSS_TRACK_ID = "gpm_cross_track_id"
 COLUMN_CLUSTER = "cluster"
 
 COLUMN_OCCURRENCE_TIME = f"occurrence_{COLUMN_TIME}"
@@ -27,6 +29,7 @@ DIM_CROSS_TRACK = "cross_track"
 DIM_PMW = "pmw_frequency"
 
 SAVEFIG_FLAG = True
+DEBUG_FLAG = False
 
 SAVEFIG_DIR = "images"
 BUCKET_DIR = "/ltenas8/data/GPM_Buckets/GMI"
@@ -50,6 +53,10 @@ TC_COLUMNS = ["Tc_10H", "Tc_10V",
               "Tc_89H", "Tc_89V",
               "Tc_165H", "Tc_165V",
               "Tc_183V3", "Tc_183V7"]
+
+AGG_OFF_COLUMNS = ["time",
+                   "lat", "lon",
+                   "gpm_id", "gpm_cross_track_id"]
 
 ST_COLUMNS = ['Ocean',
               'Sea-Ice',
@@ -88,3 +95,5 @@ ST_GROUP_MISC = ['Sea-Ice',
                  'Desert',
                  'Light snow cover',
                  'Standing Water']
+
+EXTENT_GREENLAND = [-73, -11, 59, 83]

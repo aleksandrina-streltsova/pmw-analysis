@@ -75,7 +75,7 @@ def plot_cycle(time_series: Union[pd.DataFrame, List[pd.DataFrame]], feature_col
     else:
         ts_list = time_series
 
-    _, axes = subplots(len(feature_cols), 2 * len(ts_list), xscale=3, yscale=1)
+    _, axes = subplots(nrows=len(feature_cols), ncols=2 * len(ts_list), xscale=4, yscale=2)
 
     for idx_col, ts in enumerate(ts_list):
         name = ts.attrs[ATTR_NAME]
@@ -116,7 +116,7 @@ def plot_periodogram(time_series: Union[pd.DataFrame, List[pd.DataFrame]], featu
     else:
         ts_list = time_series
 
-    _, axes = subplots(len(feature_cols), len(ts_list), xscale=3, yscale=1)
+    _, axes = subplots(len(feature_cols), len(ts_list), xscale=4, yscale=2)
 
     for idx_col, ts in enumerate(ts_list):
         periodogram_dict = ts.attrs[ATTR_PERIODOGRAM_DICT]

@@ -1,27 +1,45 @@
+"""
+This module contains functions for calculating metrics for clustering evaluation.
+"""
+import argparse
+import pathlib
+
 import gpm
 import gpm.bucket
 import matplotlib.pyplot as plt
 import numpy as np
+import polars as pl
 import seaborn as sns
 
-from pmw_analysis.constants import BUCKET_DIR, COLUMN_CLUSTER
-from pmw_analysis.processing.model import *
+from pmw_analysis.constants import BUCKET_DIR, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, TC_COLUMNS, \
+    PMW_ANALYSIS_DIR
+from pmw_analysis.processing.model import ClusterModel
 from pmw_analysis.quantization.dataframe_polars import _replace_special_missing_values_with_null
 from pmw_analysis.quantization.script import get_transformation_function
 
 L2_VARIABLES = ['cloudWaterPath', 'convectivePrecipitation', 'frozenPrecipitation',
                 'probabilityOfPrecip', 'totalColumnWaterVaporIndex']
+
+
 def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str, model_path: pathlib.Path) -> float:
     """
     Calculate B-Cubed F1 score for clustering evaluation.
 
-    Args:
-        df: Polars DataFrame containing the data
-        cluster_col: Name of column with cluster assignments
-        reference_col: Name of column with reference/true cluster assignments
+    Attributes
+    ----------
+        df : pl.DataFrame
+            Polars DataFrame containing the data.
 
-    Returns:
-        B-Cubed F1 score (float between 0 and 1)
+        cluster_col : str
+            Name of column with cluster assignments.
+
+        reference_col : str
+            Name of column with reference/true cluster assignments.
+
+    Returns
+    ----------
+        float
+            B-Cubed F1 score (float between 0 and 1)
     """
     # Calculate precision and recall for each item
     item_scores = df.select([
@@ -44,19 +62,19 @@ def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str,
     df_agr = df.group_by(cluster_col).mean()
     df_agr = df_agr.sort(cluster_col)[1:][[cluster_col] + L2_VARIABLES]
 
-    fig, axes = plt.subplots(nrows=1, ncols=len(L2_VARIABLES), figsize=(len(VARIABLE_SURFACE_TYPE_INDEX), 0.25 * len(df_agr) + 1), sharey=True)
+    fig, axes = plt.subplots(nrows=1, ncols=len(L2_VARIABLES),
+                             figsize=(len(VARIABLE_SURFACE_TYPE_INDEX), 0.25 * len(df_agr) + 1), sharey=True)
     for idx, var in enumerate(L2_VARIABLES):
         ax = axes[idx]
         df_var = df_agr[[cluster_col, var]].to_pandas().set_index(cluster_col)
         sns.heatmap(df_var, annot=True, cmap="bwr", ax=ax)
         ax.set_ylabel(None)
     fig.supylabel("Cluster")
-    fig.suptitle(f"Aggregated L2-data")
+    fig.suptitle("Aggregated L2-data")
 
     plt.tight_layout()
     plt.savefig(pathlib.Path("images") / f"l2_{model_path.name.removesuffix(".pkl")}.png")
     plt.show()
-
 
     contingency_table = (
         item_scores
@@ -117,10 +135,10 @@ def main(model_path, transform):
     # transform = get_transformation_function("v2")
 
     extents = [
-        [42, 44, 39, 41], # Sochi, Russia
-        [59, 61, 4, 6], # Bergen, Norway
-        [17, 19, -17, -15], # Nouakchott, Mauritania
-        [59, 61, -46, -44], # Nanortalik, Greenland
+        [42, 44, 39, 41],  # Sochi, Russia
+        [59, 61, 4, 6],  # Bergen, Norway
+        [17, 19, -17, -15],  # Nouakchott, Mauritania
+        [59, 61, -46, -44],  # Nanortalik, Greenland
     ]
     dfs_partial = []
 
@@ -133,11 +151,11 @@ def main(model_path, transform):
 
     feature_columns = transform(TC_COLUMNS)
     df = transform(df)
-    mask_nan =  df.select(pl.any_horizontal(pl.col(feature_columns).is_nan().alias("has_nan")))
+    has_nan = df.select(pl.any_horizontal(pl.col(feature_columns).is_nan())).to_series()
     model = ClusterModel.load(model_path)
 
     labels = -1 * np.ones(len(df), dtype=int)
-    labels[(~mask_nan["has_nan"]).to_numpy().astype(bool)] =  model.predict(df[feature_columns].filter(~mask_nan["has_nan"]))
+    labels[(~has_nan).to_numpy().astype(bool)] = model.predict(df[feature_columns].filter(~has_nan))
 
     labels = pl.Series(COLUMN_CLUSTER, labels)
     df = df.insert_column(-1, labels.alias(COLUMN_CLUSTER))
@@ -154,7 +172,7 @@ if __name__ == '__main__':
     parser.add_argument("-c", "--clusterization", choices=["kmeans", "hdbscan"])
 
     args = parser.parse_args()
-    transform = get_transformation_function(args.transform)
-    model_path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / f"{args.reduction}_{args.clusterization}.pkl"
-
-    main(model_path, transform)
+    main(
+        model_path=pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / f"{args.reduction}_{args.clusterization}.pkl",
+        transform=get_transformation_function(args.transform)
+    )

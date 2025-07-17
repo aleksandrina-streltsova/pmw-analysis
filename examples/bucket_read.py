@@ -6,9 +6,12 @@ import pathlib
 import gpm
 import matplotlib.pyplot as plt
 import polars as pl
-from gpm.bucket import LonLatPartitioning
+import pyproj
 
-from pmw_analysis.constants import SAVEFIG_DIR, SAVEFIG_FLAG, BUCKET_DIR
+from gpm.bucket import LonLatPartitioning
+from gpm.dataset.crs import set_dataset_crs
+
+from pmw_analysis.constants import SAVEFIG_DIR, SAVEFIG_FLAG, BUCKET_DIR, COLUMN_TIME
 
 # Define extent and bucket directory
 extent = [28, 32, 58, 62]
@@ -47,14 +50,16 @@ columns = [
 
 # -----------------------------------------------------------------------------.
 #### Read Parquet Dataset with polars
-df_pl: pl.DataFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR,
+lf_pl: pl.LazyFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR,
                                       columns=columns,
                                       use_pyarrow=False,  # use rust parquet reader
                                       extent=extent,
                                       # n_rows=2,
                                       # n_rows=100_000_000, # for prototyping
                                       parallel="auto",  # "row_groups", "columns"
+                                      backend="polars_lazy",
                                       )
+df_pl: pl.DataFrame = lf_pl.filter(pl.col(COLUMN_TIME).dt.year() == 2018).collect()
 
 # TODO: preprocess nulls
 df_pl = df_pl.filter(~pl.col("Tc_10H").is_null())
@@ -131,14 +136,15 @@ cbar_kwargs = {"extend": "both",
                "extendfrac": 0.05,
                "label": "Brightness Temperature [K]"}
 
+ds = set_dataset_crs(ds, crs=pyproj.CRS.from_epsg(4326))
 # Plot RFI pattern (X band)
 p = ds["max_Tc_10H"].gpm.plot_map(x="longitude", y="latitude", cmap="Spectral_r",
                                   vmin=260, vmax=350,
                                   fig_kwargs=fig_kwargs,
                                   cbar_kwargs=cbar_kwargs)
-p.axes_count.set_title("Maximum GMI Tb at 10 GHz")
-p.axes_count.scatter(point_city[0], point_city[1], marker="x", c="black")
-p.axes_count.scatter(point_outskirts[0], point_outskirts[1], marker="x", c="blue")
+p.axes.set_title("Maximum GMI Tb at 10 GHz")
+p.axes.scatter(point_city[0], point_city[1], marker="x", c="black")
+p.axes.scatter(point_outskirts[0], point_outskirts[1], marker="x", c="blue")
 if SAVEFIG_FLAG:
     plt.savefig(pathlib.Path(SAVEFIG_DIR) / "point_locations.png")
 plt.show()

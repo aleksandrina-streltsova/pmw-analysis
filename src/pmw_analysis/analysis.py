@@ -3,14 +3,13 @@ This module contains utilities for analyzing quantized transformed data.
 """
 import argparse
 import pathlib
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, Tuple
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import polars as pl
-import seaborn as sns
 from matplotlib.colors import LogNorm
 from tqdm import tqdm
 
@@ -19,10 +18,11 @@ from pmw_analysis.constants import (
     COLUMN_COUNT, COLUMN_ACCUM_UNIQUE, COLUMN_ACCUM_ALL, COLUMN_OCCURRENCE_TIME,
     ST_GROUP_SNOW, ST_GROUP_OCEAN, ST_GROUP_VEGETATION,
     VARIABLE_SURFACE_TYPE_INDEX,
-    TC_COLUMNS, ST_COLUMNS,
+    TC_COLUMNS, ST_COLUMNS, COLUMN_OCCURRENCE,
 )
 from pmw_analysis.quantization.dataframe_polars import filter_surface_type, expand_occurrence_column
 from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.utils.polars import get_column_ranges, take_k_sorted
 from pmw_analysis.utils.pyplot import finalize_axis
 
 
@@ -45,47 +45,53 @@ def plot_point_accumulation(path: pathlib.Path, var: Optional[str]):
     df = df.with_columns(pl.col(COLUMN_COUNT).cast(pl.UInt64))
     df_count = _cum_sum_over_time(df)
 
+    fig, axes = _plot_count_over_time(df_count)
+    fig_var = _plot_var_over_time(df, var, axes)
+
+    images_path = pathlib.Path("images") / path.parent.name / "over_time"
+    images_path.mkdir(parents=True, exist_ok=True)
+
+    for fig, filename in [(fig, f"count_over_time{"" if var is None else f"_{var}"}.png"),
+                          (fig_var, f"var_over_time{"" if var is None else f"_{var}"}.png")]:
+        fig.tight_layout()
+        fig.savefig(images_path / filename)
+
+
+def _plot_count_over_time(df_count) -> Tuple[plt.Figure, np.ndarray[plt.Axes]]:
     fig, axes = plt.subplots(1, 2, figsize=(15, 5))
     for ax, col_accum, title_prefix in zip(axes, [COLUMN_ACCUM_ALL, COLUMN_ACCUM_UNIQUE],
                                            ["Signatures first", "Unique signatures"]):
         ax.plot(df_count[COLUMN_OCCURRENCE_TIME], df_count[col_accum], color="b", label="All")
         ax.set_yscale("log")
         finalize_axis(ax, title=f"{title_prefix} seen before this time", x_label="Time", y_label="Cumulative count")
-    figs_with_filenames = [(fig, f"count_over_time{"" if var is None else f"_{var}"}.png")]
 
-    if var is not None:
-        df_var_count_desc, df_var_mean_desc, df_var_not_null = _calculate_reverse_cumsum_for_variable(df, var)
-        count_total_all = df_var_not_null[COLUMN_COUNT].sum()
-        count_total_unique = len(df_var_not_null)
-
-        for i, (col_accum, count_total) in enumerate(zip([COLUMN_ACCUM_ALL, COLUMN_ACCUM_UNIQUE],
-                                                         [count_total_all, count_total_unique])):
-            axes[i].plot(df_var_count_desc[COLUMN_OCCURRENCE_TIME],
-                         count_total - df_var_count_desc[col_accum],
-                         color="g", label=f"Not-null '{var}'")
-
-        fig_var, (axes_var, axes_count) = plt.subplots(2, 2, figsize=(15, 10))
-        for i, col_accum in enumerate([COLUMN_ACCUM_ALL, COLUMN_ACCUM_UNIQUE]):
-            axes_var[i].plot(df_var_mean_desc[COLUMN_OCCURRENCE_TIME], df_var_mean_desc[col_accum],
-                             color="r", label=var)
-            finalize_axis(axes_var[i], title=f"Mean of '{var}' (from this time to end)", x_label="Time", y_label=var)
-
-            axes_count[i].plot(df_var_mean_desc[COLUMN_OCCURRENCE_TIME], df_var_count_desc[col_accum],
-                               color="g", label=f"Not-null '{var}'")
-            finalize_axis(axes_count[i],
-                          title="Cumulative count (from this time to end)", x_label="Time", y_label="Count")
-            axes_count[i].set_yscale("log")
-        figs_with_filenames.append((fig_var, f"{var}_over_time.png"))
-
-    images_path = pathlib.Path("images") / path.parent.name / "over_time"
-    images_path.mkdir(parents=True, exist_ok=True)
-
-    for fig, filename in figs_with_filenames:
-        fig.tight_layout()
-        fig.savefig(images_path / filename)
+    return fig, axes
 
 
-def analyze(path: pathlib.Path, var: Optional[str], transform: Callable):
+def _plot_var_over_time(df: pl.DataFrame, var: str, axes: np.ndarray[plt.Axes]) -> plt.Figure:
+    df_var_count_desc, df_var_mean_desc, df_var_not_null = _calculate_reverse_cumsum_for_variable(df, var)
+    count_total_all = df_var_not_null[COLUMN_COUNT].sum()
+    count_total_unique = len(df_var_not_null)
+
+    for i, (col_accum, count_total) in enumerate(zip([COLUMN_ACCUM_ALL, COLUMN_ACCUM_UNIQUE],
+                                                     [count_total_all, count_total_unique])):
+        axes[i].plot(df_var_count_desc[COLUMN_OCCURRENCE_TIME], count_total - df_var_count_desc[col_accum],
+                     color="g", label=f"Not-null '{var}'")
+
+    fig_var, (axes_var, axes_count) = plt.subplots(2, 2, figsize=(15, 10))
+    for i, col_accum in enumerate([COLUMN_ACCUM_ALL, COLUMN_ACCUM_UNIQUE]):
+        axes_var[i].plot(df_var_mean_desc[COLUMN_OCCURRENCE_TIME], df_var_mean_desc[col_accum], color="r", label=var)
+        finalize_axis(axes_var[i], title=f"Mean of '{var}' (from this time to end)", x_label="Time", y_label=var)
+
+        axes_count[i].plot(df_var_mean_desc[COLUMN_OCCURRENCE_TIME], df_var_count_desc[col_accum],
+                           color="g", label=f"Not-null '{var}'")
+        finalize_axis(axes_count[i], title="Cumulative count (from this time to end)", x_label="Time", y_label="Count")
+        axes_count[i].set_yscale("log")
+
+    return fig_var
+
+
+def analyze(path: pathlib.Path, var: Optional[str], transform: Callable, k: Optional[int]):
     """
     Generate pairplots of features for a given dataset.
 
@@ -101,13 +107,21 @@ def analyze(path: pathlib.Path, var: Optional[str], transform: Callable):
 
     feature_columns = transform(TC_COLUMNS)
 
-    df = df_merged[feature_columns + ["surfaceTypeIndex", "count"]]
+    df = df_merged[feature_columns + [VARIABLE_SURFACE_TYPE_INDEX, COLUMN_COUNT, COLUMN_OCCURRENCE]]
+    if k is not None:
+        df_k = take_k_sorted(df, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
+    else:
+        df_k = None
     # df = df[:10000]  # for testing
 
     n_bins = []
     for tc_col in feature_columns:
         value_count = df[[tc_col, COLUMN_COUNT]].group_by(tc_col).sum()
-        null_count = value_count.filter(pl.col(tc_col).is_null())[COLUMN_COUNT][0]
+        null_count = value_count.filter(pl.col(tc_col).is_null())[COLUMN_COUNT]
+        if len(null_count) > 0:
+            null_count = null_count.item()
+        else:
+            null_count = 0
         unique_value_count = len(value_count.filter(pl.col(tc_col).is_not_null()))
 
         print(f"{tc_col} has {unique_value_count} unique non-null values.")
@@ -117,8 +131,7 @@ def analyze(path: pathlib.Path, var: Optional[str], transform: Callable):
 
     n_bins = np.array(n_bins)
 
-    min_vals = np.array(df.select([pl.col(col).min() for col in feature_columns]).row(0))
-    max_vals = np.array(df.select([pl.col(col).max() for col in feature_columns]).row(0))
+    feature_ranges = get_column_ranges(df, feature_columns)
 
     images_path = pathlib.Path("images") / path.parent.name
     images_path.mkdir(exist_ok=True)
@@ -130,7 +143,7 @@ def analyze(path: pathlib.Path, var: Optional[str], transform: Callable):
         ("Snow (Group)", ST_GROUP_SNOW, "rebeccapurple"),
     ]
     for group in groups:
-        _analyze_surface_type_group(df, feature_columns, group, var, min_vals, max_vals, n_bins, images_path)
+        _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins, images_path)
 
 
 def _sorted_not_null_unique_values(df: pl.DataFrame, col: str) -> pl.Series:
@@ -158,6 +171,7 @@ def _cum_sum_over_time(df: pl.DataFrame, var: Optional[str] = None, descending: 
         df = df.reverse()
     return df
 
+
 def _calculate_reverse_cumsum_for_variable(df, var):
     var_count = f"{var}_{COLUMN_COUNT}"
 
@@ -175,7 +189,7 @@ def _calculate_reverse_cumsum_for_variable(df, var):
     return df_var_count_desc, df_var_mean_desc, df_var_not_null
 
 
-def _analyze_surface_type_group(df, feature_columns, group, var, min_vals, max_vals, n_bins, images_path):
+def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins, images_path):
     group_name, surface_types, color = group
 
     if group_name is None:
@@ -186,20 +200,24 @@ def _analyze_surface_type_group(df, feature_columns, group, var, min_vals, max_v
         cmap = mcolors.LinearSegmentedColormap.from_list("custom_cmap", ["white", color])
 
     df_to_use = df
+    df_to_use_k = df_k
 
     if flag_values is not None:
         df_to_use = df_to_use[feature_columns + [VARIABLE_SURFACE_TYPE_INDEX]]
         df_to_use = filter_surface_type(df_to_use, flag_values)
 
-    for tc_col in feature_columns:
-        value_count = df_to_use[[tc_col, COLUMN_COUNT]].group_by(tc_col).sum()
-        value_count = value_count.filter(pl.col(tc_col).is_not_null())
-        _plot_hist(value_count.to_pandas(), tc_col, group_name, images_path)
+        if df_to_use_k is not None:
+            df_to_use_k = df_to_use_k[feature_columns + [VARIABLE_SURFACE_TYPE_INDEX]]
+            df_to_use_k = filter_surface_type(df_to_use_k, flag_values)
 
     if var is not None:
         cmap = "viridis"
 
-    hists_mtx = _calculate_pairplots_concat_matrix(df_to_use, feature_columns, min_vals, max_vals, n_bins, var)
+    hists_mtx = _calculate_pairplots_concat_matrix(df_to_use, feature_columns, feature_ranges, n_bins, var)
+    if df_to_use_k is not None:
+        hists_mtx_k = _calculate_pairplots_concat_matrix(df_to_use_k, feature_columns, feature_ranges, n_bins, var)
+    else:
+        hists_mtx_k = None
 
     hists_path = pathlib.Path("hists") / images_path.name
     hists_path.mkdir(parents=True, exist_ok=True)
@@ -215,12 +233,10 @@ def _analyze_surface_type_group(df, feature_columns, group, var, min_vals, max_v
         norm = None
 
     fig, ax = plt.subplots(1, 1, figsize=(4 * len(feature_columns) + 4, 4 * len(feature_columns)))
-    _plot_heatmap_with_varying_cell_sizes(hists_mtx, n_bins, cmap, norm, ax, min_vals, max_vals)
+    _plot_heatmap_with_varying_cell_sizes(hists_mtx, hists_mtx_k, n_bins, cmap, norm, ax, feature_ranges)
 
-    x_label, x_label_fontsize = _get_histograms2d_label(fig, ax, feature_columns)
-    y_label, y_label_fontsize = _get_histograms2d_label(fig, ax, feature_columns[::-1], use_height=True)
-    ax.set_xlabel(x_label, fontsize=x_label_fontsize)
-    ax.set_ylabel(y_label, fontsize=y_label_fontsize)
+    _set_histograms2d_label(fig, ax, feature_columns)
+    _set_histograms2d_label(fig, ax, feature_columns[::-1], is_y=True)
 
     title_suffix = "" if var is None else f" ({var})"
 
@@ -232,29 +248,32 @@ def _analyze_surface_type_group(df, feature_columns, group, var, min_vals, max_v
         fig.savefig(images_path / f"count_{group_name}_{len(feature_columns)}.png")
 
 
-def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, n_bins: np.ndarray,
-                                          cmap, norm, ax: plt.Axes, min_vals, max_vals):
+def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: Optional[np.ndarray], n_bins: np.ndarray,
+                                          cmap, norm, ax: plt.Axes, feature_ranges: np.ndarray):
     xs = np.ones(n_bins.sum())
     n_bins_cumsum = np.cumsum(n_bins)
     n_bins_cumsum = np.insert(n_bins_cumsum, 0, 0)
     lines = n_bins.min() * np.arange(len(n_bins) + 1)
-    for i, (n, offset) in enumerate(zip(n_bins, n_bins_cumsum)):
+    for n, offset in zip(n_bins, n_bins_cumsum):
         xs[offset:offset + n] *= n_bins.min() / n
     xs = np.cumsum(xs)
     bounds = (xs[:-1] + xs[1:]) / 2
     bounds = np.concatenate([[2 * bounds[0] - bounds[1]], bounds, [2 * bounds[-1] - bounds[-2]]])
 
     c = ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx[::-1], cmap=cmap, norm=norm)
+    if hists_mtx_k is not None:
+        cmap_k = "viridis"
+        ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx_k[::-1],
+                      cmap=cmap_k, alpha=hists_mtx_k[::-1] > 0)
+
     ax.vlines(lines[1:-1], ymin=lines[0], ymax=lines[-1], colors='black')
     ax.hlines(lines[1:-1], xmin=lines[0], xmax=lines[-1], colors='black')
 
     n_ticks = 15
     x_tick_labels = np.concatenate([np.round(np.linspace(min_val, max_val, n_ticks + 1)[1:], decimals=2)
-                                    for min_val, max_val
-                                    in zip(min_vals, max_vals)])
+                                    for min_val, max_val in feature_ranges])
     y_tick_labels = np.concatenate([np.round(np.linspace(min_val, max_val, n_ticks + 1)[1:], decimals=2)[::-1]
-                                    for min_val, max_val
-                                    in zip(min_vals, max_vals)])
+                                    for min_val, max_val in feature_ranges])
     x_ticks = np.ones(n_ticks * len(n_bins)) * n_bins.min() / n_ticks
 
     x_ticks = np.cumsum(x_ticks)
@@ -283,7 +302,7 @@ def _plot_hist(value_count_pd: pd.DataFrame, tc_col, group_name, images_path: pa
 
 
 def _calculate_pairplots_concat_matrix(df: pl.DataFrame, feature_columns: List[str],
-                                       min_vals: np.ndarray, max_vals: np.ndarray, n_bins: np.ndarray,
+                                       feature_ranges: np.ndarray, n_bins: np.ndarray,
                                        var: Optional[str]):
     n_bins_cumsum = np.cumsum(n_bins)
     n_bins_cumsum = np.insert(n_bins_cumsum, 0, 0)
@@ -294,7 +313,7 @@ def _calculate_pairplots_concat_matrix(df: pl.DataFrame, feature_columns: List[s
             cols = [tc_col1] if idx1 == idx2 else [tc_col1, tc_col2]
 
             counts = df.select(cols + [COLUMN_COUNT]).group_by(cols, maintain_order=False).sum()
-            hist_range = ((min_vals[idx1], max_vals[idx1]), (min_vals[idx2], max_vals[idx2]))
+            hist_range = (feature_ranges[idx1], feature_ranges[idx2])
             hist = np.histogram2d(counts[tc_col1], counts[tc_col2],
                                   range=hist_range, weights=counts[COLUMN_COUNT],
                                   bins=(n_bins[idx1], n_bins[idx2]))[0]
@@ -319,10 +338,10 @@ def _calculate_pairplots_concat_matrix(df: pl.DataFrame, feature_columns: List[s
     return hists_mtx
 
 
-def _get_histograms2d_label(fig: plt.Figure, ax: plt.Axes, columns: List[str], use_height=False):
+def _set_histograms2d_label(fig: plt.Figure, ax: plt.Axes, columns: List[str], is_y=False):
     fig.canvas.draw()
     bbox = ax.get_window_extent()
-    length_px = bbox.height if use_height else bbox.width
+    length_px = bbox.height if is_y else bbox.width
 
     char_width_per_pt = 0.6
     max_title_width_pt = length_px / char_width_per_pt
@@ -340,7 +359,10 @@ def _get_histograms2d_label(fig: plt.Figure, ax: plt.Axes, columns: List[str], u
         n_spaces = n_lens[i] - (k - 1) * len(column) // k
         label += " " * (n_spaces // 2) + column + " " * (n_spaces - n_spaces // 2)
 
-    return label, font_size
+    if is_y:
+        ax.set_ylabel(label, fontsize=font_size)
+    else:
+        ax.set_xlabel(label, fontsize=font_size)
 
 
 def main():
@@ -349,22 +371,28 @@ def main():
     parser.add_argument("--transform", "-t", default="default",
                         choices=["default", "pd", "ratio", "v1", "v2", "v3"],
                         help="Type of transformation performed on data")
+    parser.add_argument("--path", default=None,
+                        help="Transformed data path if it is different from the default one")
 
     pairplot_parser = subparsers.add_parser("pairplot", help="")
     pairplot_parser.add_argument("--var", "-v", help="Variable to color by in pair plots")
+    pairplot_parser.add_argument("-k", type=int, help="Number of newest signatures to plot in red")
 
     accum_parser = subparsers.add_parser("accum", help="")
     accum_parser.add_argument("--var", "-v", help="Variable to ")
 
     args = parser.parse_args()
 
-    path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / "final.parquet"
+    if args.path is not None:
+        path = pathlib.Path(args.path)
+    else:
+        path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / "final.parquet"
     transform = get_transformation_function(args.transform)
 
     if args.analysis == "accum":
         plot_point_accumulation(path, args.var)
     elif args.analysis == "pairplot":
-        analyze(path, args.var, transform)
+        analyze(path, args.var, transform, args.k)
 
 
 if __name__ == '__main__':

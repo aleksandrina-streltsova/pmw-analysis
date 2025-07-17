@@ -1,15 +1,22 @@
-from typing import List
+"""
+This module contains functions for plotting clusterization results on map.
+"""
+import argparse
+import pathlib
+from typing import List, Callable
 
 import gpm
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-import pandas as pd
-import xarray as xr
 import numpy as np
+import pandas as pd
+import polars as pl
+import xarray as xr
 
 from pmw_analysis.constants import PRODUCT_1C_GMI_R, PRODUCT_TYPE_RS, VERSION, \
-    STORAGE_GES_DISC, VARIABLE_TC, COLUMN_CLUSTER, PRODUCT_2A_GMI, DIM_ALONG_TRACK
-from pmw_analysis.processing.model import *
+    STORAGE_GES_DISC, VARIABLE_TC, COLUMN_CLUSTER, PRODUCT_2A_GMI, TC_COLUMNS, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, \
+    PMW_ANALYSIS_DIR
+from pmw_analysis.processing.model import ClusterModel
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.pyplot import get_surface_type_cmap
 
@@ -45,7 +52,6 @@ def _get_da_example() -> List[xr.DataArray]:
 
     das = []
     for variable, product in [(VARIABLE_TC, PRODUCT_1C_GMI_R), (VARIABLE_SURFACE_TYPE_INDEX, PRODUCT_2A_GMI)]:
-        product = product
         product_type = PRODUCT_TYPE_RS
 
         gpm.download(product, start_time, end_time, product_type, VERSION, STORAGE_GES_DISC)
@@ -60,12 +66,15 @@ def _get_da_example() -> List[xr.DataArray]:
 
 
 def plot_map(model_path: pathlib.Path, transform: Callable):
+    """
+    Plot clusterization results and reference classes on map.
+    """
     da, da_ref = _get_da_example()
     df = _xr_to_pl(da)
 
     feature_columns = transform(TC_COLUMNS)
     df = transform(df)
-    mask_nan =  df.select(pl.any_horizontal(pl.col(feature_columns).is_nan().alias("has_nan")))
+    mask_nan = df.select(pl.any_horizontal(pl.col(feature_columns).is_nan().alias("has_nan")))
     model = ClusterModel.load(model_path)
 
     labels = -1 * np.ones(len(df), dtype=int)

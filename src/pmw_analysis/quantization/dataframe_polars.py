@@ -1,9 +1,10 @@
 """
 This module contains methods for quantization of data using Polars data frames.
 """
+import itertools
 import logging
 from dataclasses import dataclass
-from typing import Dict, Tuple, Iterable, List, Optional
+from typing import Dict, Tuple, Iterable, List, Optional, Sequence
 
 import pandas as pd
 import polars as pl
@@ -11,7 +12,7 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, \
     COLUMN_LON, COLUMN_LAT, COLUMN_OCCURRENCE, COLUMN_OCCURRENCE_TIME, COLUMN_OCCURRENCE_LON, COLUMN_OCCURRENCE_LAT, \
-    TC_COLUMNS
+    DEBUG_FLAG
 
 
 #### COLUMNS ####
@@ -22,6 +23,7 @@ def _get_columns_to_drop(columns: Iterable[str]) -> Iterable[str]:
         'gpm_cross_track_id',
         'gpm_along_track_id',
         'orbit_mode',
+        'time',
     ]
     return [col for col in columns if col in columns_to_drop]
 
@@ -78,15 +80,15 @@ def _get_special_dict() -> Dict[str, Tuple[float, str]]:
 
 
 #### PROCESSING MISSING VALUES ####
-def _replace_special_missing_values_with_null(df: pl.DataFrame) -> pl.DataFrame:
-    columns = df.columns
-    df_result = df.with_columns([
+def _replace_special_missing_values_with_null(lf: pl.LazyFrame) -> pl.LazyFrame:
+    columns = lf.collect_schema().names()
+    lf_result = lf.with_columns([
                                     pl.col(col).replace({-99: None, -9999: None})
                                     for col in columns
                                     if col != "lon"  # lon ranges from -180 to 180 and can be equal to -99
-                                ] + [df["lon"].replace(-9999, None)])
+                                ] + [pl.col("lon").replace(-9999, None)])
 
-    return df_result
+    return lf_result
 
 
 #### ROUNDING ####
@@ -150,19 +152,19 @@ def get_uncertainties_dict(tc_columns: Iterable[str]) -> Dict[str, float]:
     return uncertainties
 
 
-def _round(df: pl.DataFrame,
+def _round(lf: pl.DataFrame | pl.LazyFrame,
            quant_columns: Iterable[str],
            quant_steps: Iterable[float | int],
-           quant_ranges: Optional[Iterable[Tuple[float | int, float | int]]]) -> pl.DataFrame:
+           quant_ranges: Optional[Iterable[Tuple[float | int, float | int]]]) -> pl.DataFrame | pl.LazyFrame:
     if quant_ranges is not None:
-        df = df.with_columns([pl.col(c).clip(lower, upper) for c, (lower, upper) in zip(quant_columns, quant_ranges)])
+        lf = lf.with_columns([pl.col(c).clip(lower, upper) for c, (lower, upper) in zip(quant_columns, quant_ranges)])
 
-    df_result = df.with_columns([
+    lf_result = lf.with_columns([
         (pl.col(col) / step).round() * step
         for col, step in zip(quant_columns, quant_steps)
     ])
 
-    return df_result
+    return lf_result
 
 
 #### QUANTIZATION ####
@@ -204,6 +206,9 @@ class DataFrameQuantizationInfo:
         Columns where only the minimum value is retained for each group.
         This is typically used for timestamp fields (e.g., earliest observation in group).
 
+    agg_off_columns : Iterable[str], optional
+        Columns whose values are stored in lists, without aggregation.
+
     periodic_dict : Dict[str, float], optional
         Midpoints for each periodic column, used to separate the value space during aggregation.
         Example: {'sunLocalTime': 12.0, 'lon': 0.0, 'day': 183.0}
@@ -220,25 +225,55 @@ class DataFrameQuantizationInfo:
     periodic_columns: Iterable[str] = ()
     special_columns: Iterable[str] = ()
     agg_min_columns: Iterable[str] = ()
+    agg_off_columns: Iterable[str] = ()
     periodic_dict: Dict[str, float] = None
     special_dict: Dict[str, Tuple[float, str]] = None
 
+    @staticmethod
+    def create(columns: Iterable[str], quant_columns: Iterable[str], quant_steps: Iterable[float | int] = None,
+               quant_ranges: Iterable[Tuple[float | int, float | int]] = None,
+               agg_off_columns: Iterable[str] = (), periodic_dict: Dict[str, float] = None,
+               special_dict: Dict[str, Tuple[float, str]] = None) -> "DataFrameQuantizationInfo":
+        """
+        Create a DataFrameQuantizationInfo object from a list of columns.
+        """
+        agg_on_columns = [col for col in columns if col not in agg_off_columns]
 
-def _aggregate(df: pl.DataFrame, info: DataFrameQuantizationInfo) -> pl.DataFrame:
-    columns = set(df.columns)
+        return DataFrameQuantizationInfo(
+            quant_columns=quant_columns,
+            quant_steps=quant_steps,
+            quant_ranges=quant_ranges,
+            flag_columns=_get_flag_columns(agg_on_columns),
+            periodic_columns=_get_periodic_columns(agg_on_columns),
+            special_columns=_get_special_columns(agg_on_columns),
+            agg_min_columns=[COLUMN_OCCURRENCE],
+            agg_off_columns=agg_off_columns,
+            periodic_dict=periodic_dict,
+            special_dict=special_dict,
+        )
 
-    agg_mean_cols = [col for col in columns if
-                     col not in info.quant_columns and
-                     col not in info.flag_columns and
-                     col not in info.periodic_columns and
-                     col not in info.special_columns and
-                     col not in info.agg_min_columns]
+    def get_agg_mean_columns(self, columns: Sequence[str]) -> Sequence[str]:
+        """
+        Return the columns whose values are aggregated using averaging function.
+        """
+        return [col for col in columns if
+                col not in self.quant_columns and
+                col not in self.flag_columns and
+                col not in self.periodic_columns and
+                col not in self.special_columns and
+                col not in self.agg_min_columns and
+                col not in self.agg_off_columns]
 
-    estimated_size = df.estimated_size() / (1024 * 1024)
-    logging.info("Estimated dataframe size: %.2f MB", estimated_size)
 
-    df_result = (
-        df
+def _aggregate(lf: pl.LazyFrame, info: DataFrameQuantizationInfo) -> pl.LazyFrame:
+    columns = lf.collect_schema().names()
+    agg_mean_cols = info.get_agg_mean_columns(columns)
+
+    # estimated_size = df.estimated_size() / (1024 * 1024)
+    # logging.info("Estimated dataframe size: %.2f MB", estimated_size)
+
+    lf_result = (
+        lf
         .group_by(info.quant_columns)
         .agg(
             *[pl.col(flag_col).value_counts(name=STRUCT_FIELD_COUNT) for flag_col in info.flag_columns],
@@ -265,98 +300,106 @@ def _aggregate(df: pl.DataFrame, info: DataFrameQuantizationInfo) -> pl.DataFram
               for expr in
               [pl.col(mean_col).mean(), (pl.len() - pl.col(mean_col).null_count()).alias(f"{mean_col}_count")]],
 
+            *[pl.col(off_col) for off_col in info.agg_off_columns],
+
             *[pl.col(min_col).min() for min_col in info.agg_min_columns],
             pl.len().alias(COLUMN_COUNT),
         )
     )
 
-    assert df_result[COLUMN_COUNT].sum() == df.shape[0]
-    return df_result
+    if DEBUG_FLAG:
+        assert (lf_result.select(pl.col(COLUMN_COUNT).sum()).collect(engine="streaming").item() ==
+                lf.select(pl.len()).collect(engine="streaming").item())
+    return lf_result
 
 
 #### PREPROCESSING PIPELINE ####
-def quantize_pmw_features(df: pl.DataFrame, quant_columns: Iterable[str],
+def quantize_pmw_features(lf: pl.LazyFrame, quant_columns: Iterable[str],
                           uncertainty_dict: Dict[str, float],
-                          range_dict: Optional[Dict[str, float]]) -> pl.DataFrame:
+                          range_dict: Optional[Dict[str, float]],
+                          agg_off_columns: Iterable[str] = ()) -> pl.LazyFrame:
     """
-    Quantize PMW feature columns and performs group-wise aggregation on a Polars DataFrame.
+    Quantize PMW feature columns and performs group-wise aggregation on a Polars LazyFrame.
     """
-    # 0. Drop id columns.
-    df = df.drop(_get_columns_to_drop(df.columns))
-
     # 1. Replace NaN, -99, and -9999 by nulls.
-    df = df.fill_nan(None)
-    df = _replace_special_missing_values_with_null(df)
+    lf = lf.fill_nan(None)
+    lf = _replace_special_missing_values_with_null(lf)
 
     # 2. Extract ordinal day from time column.
-    df = df.with_columns(
+    lf = lf.with_columns(
         pl.col(COLUMN_TIME).dt.ordinal_day().alias("day")
     )
 
     # 3. Create a column with occurrence info (`time`, `lat`, and `lon`).
-    df = df.with_columns(
+    lf = lf.with_columns(
         (pl.col(COLUMN_TIME).cast(str) + "|" +
          pl.col(COLUMN_LON).round(1).cast(str) + "|" +
          pl.col(COLUMN_LAT).round(1).cast(str)).alias(COLUMN_OCCURRENCE)
     )
-    # 3.5 Remove `time` column, since we have `sunLocalTime`, `day`, and `occurrence` columns now.
-    df.drop_in_place(COLUMN_TIME)
 
-    # 4. Quantize Tc columns and group duplicate signatures.
+    # 4. Drop id columns. Remove `time` column, since we have `sunLocalTime`, `day`, and `occurrence` columns now.
+    lf = lf.drop(_get_columns_to_drop([col for col in lf.collect_schema().names() if col not in agg_off_columns]))
+    lf_agg_columns = [col for col in lf.collect_schema().names() if col not in agg_off_columns]
+
+    # 5. Quantize Tc columns and group duplicate signatures.
     quant_steps = [uncertainty_dict[col] for col in quant_columns]
     quant_ranges = [
         (range_dict[f"{col}_min"], range_dict[f"{col}_max"]) for col in quant_columns
     ] if range_dict is not None else None
 
-    info = DataFrameQuantizationInfo(
-        quant_columns=quant_columns,
-        quant_steps=quant_steps,
-        quant_ranges=quant_ranges,
-        flag_columns=_get_flag_columns(df.columns),
-        periodic_columns=_get_periodic_columns(df.columns),
-        special_columns=_get_special_columns(df.columns),
-        agg_min_columns=[COLUMN_OCCURRENCE],
-        periodic_dict=_get_periodic_dict(),
-        special_dict=_get_special_dict(),
-    )
+    info = DataFrameQuantizationInfo.create(lf_agg_columns, quant_columns, quant_steps, quant_ranges,
+                                            agg_off_columns=agg_off_columns,
+                                            periodic_dict=_get_periodic_dict(),
+                                            special_dict=_get_special_dict())
 
-    return quantize_features(df, info)
+    return quantize_features(lf, info)
 
 
-def quantize_features(df: pl.DataFrame, info: DataFrameQuantizationInfo) -> pl.DataFrame:
+def quantize_features(lf: pl.LazyFrame, info: DataFrameQuantizationInfo) -> pl.LazyFrame:
     """
-    Quantize specified feature columns and performs group-wise aggregation on a Polars DataFrame.
+    Quantize specified feature columns and performs group-wise aggregation on a Polars LazyFrame.
 
     This function performs two main operations:
       1. Rounds numerical features (`quant_columns`).
-      2. Aggregates the DataFrame based on the quantized values,
+      2. Aggregates the LazyFrame based on the quantized values,
       computing descriptive statistics over other types of columns.
 
     Parameters
     ----------
-    df : pl.DataFrame
-        The input Polars DataFrame containing features to quantize and aggregate.
+    lf : pl.LazyFrame
+        The input Polars LazyFrame containing features to quantize and aggregate.
 
     info : DataFrameQuantizationInfo
         Input information required for performing quantization algorithm.
 
     Returns
     -------
-        pl.DataFrame: Aggregated DataFrame where rows with similar feature profiles are grouped and summarized.
+        pl.LazyFrame: Aggregated LazyFrame where rows with similar feature profiles are grouped and summarized.
     """
-    row_count_before = len(df)
 
-    df = _round(df, info.quant_columns, info.quant_steps, info.quant_ranges)
-    df = _aggregate(df, info)
+    lf_result = _round(lf, info.quant_columns, info.quant_steps, info.quant_ranges)
+    lf_result = _aggregate(lf_result, info)
 
-    assert row_count_before == df[COLUMN_COUNT].sum()
-    row_count_after = len(df)
-    logging.info("Quantized features into %d/%d", row_count_after, row_count_before)
+    # logging.info("[quantize] query explanation:\n%s", lf.explain(streaming=True))
 
-    return df
+    if DEBUG_FLAG:
+        row_count_before = lf.select(pl.len()).collect(engine="streaming").item()
+        row_count_after = lf_result.select(pl.len()).collect(engine="streaming").item()
+        assert row_count_before == lf_result.select(pl.col(COLUMN_COUNT).sum()).collect(engine="streaming").item()
+        logging.info("Quantized features into %d/%d", row_count_after, row_count_before)
+
+    return lf_result
 
 
 #### MERGING PREPROCESSED DATA ####
+def _lookahead(tee_iterator: itertools.tee):
+    """
+    Return the next value without moving the input forward.
+    """
+    [forked_iterator] = itertools.tee(tee_iterator, 1)
+    return next(forked_iterator)
+
+
 def _get_struct_list_type(flag_column: str) -> pl.List:
     return pl.List(pl.Struct([
         pl.Field(flag_column, pl.Int16),
@@ -364,72 +407,79 @@ def _get_struct_list_type(flag_column: str) -> pl.List:
     ]))
 
 
-def _aggregate_structs(df: pl.DataFrame, flag_column: str) -> pl.DataFrame:
-    df_result = (
-        df
+def _aggregate_structs(lf: pl.LazyFrame, quant_columns: Iterable[str], flag_column: str) -> pl.LazyFrame:
+    # TODO: the commented approach doesn't work with lazy frame, seemingly because of ".with_row_index()"
+    # lf = lf.with_row_index() # track original rows
+    # lf_result = (
+    #     lf
+    #     .select(["index", flag_column])
+    #     .explode(flag_column)  # explode the List[Struct]
+    #     .unnest(flag_column)  # turns into columns (flag_column, STRUCT_FIELD_COUNT)
+    #     .group_by(["index", flag_column])
+    #     .agg(pl.col(STRUCT_FIELD_COUNT).sum())
+    #     .with_columns(pl.struct([flag_column, STRUCT_FIELD_COUNT]).alias(f"{flag_column}_tmp"))  # build back struct
+    #     .group_by("index")
+    #     .agg(pl.col(f"{flag_column}_tmp"))
+    #     .join(lf.drop(flag_column), on="index")
+    #     .rename({f"{flag_column}_tmp": flag_column})
+    #     .drop("index")
+    # )
+    lf_result = (
+        lf
+        .select(list(quant_columns) + [flag_column])
         .with_row_index()  # track original rows
         .explode(flag_column)  # explode the List[Struct]
         .unnest(flag_column)  # turns into columns (flag_column, STRUCT_FIELD_COUNT)
         .group_by(["index", flag_column])
-        .agg(pl.col(STRUCT_FIELD_COUNT).sum())
+        .agg([pl.col(STRUCT_FIELD_COUNT).sum()] + [pl.col(quant_col).first() for quant_col in quant_columns])
         .with_columns(pl.struct([flag_column, STRUCT_FIELD_COUNT]).alias(f"{flag_column}_tmp"))  # build back struct
         .group_by("index")
-        .agg(pl.col(f"{flag_column}_tmp"))
-        .join(df.drop(flag_column).with_row_index(), on="index")
-        .rename({f"{flag_column}_tmp": flag_column})
+        .agg([pl.col(f"{flag_column}_tmp")] + [pl.col(quant_col).first() for quant_col in quant_columns])
         .drop("index")
+        .join(lf.drop(flag_column), on=quant_columns, nulls_equal=True)
+        .rename({f"{flag_column}_tmp": flag_column})
     )
 
-    return df_result
+    return lf_result
 
 
-def merge_quantized_pmw_features(dfs: Iterable[pl.DataFrame],
+def merge_quantized_pmw_features(lfs: Iterable[pl.LazyFrame],
                                  quant_columns: Iterable[str],
-                                 ) -> pl.DataFrame:
+                                 agg_off_columns: Iterable[str] = (),
+                                 ) -> pl.LazyFrame | pl.DataFrame:
     """
-    Merge quantized PMW features from a collection of dataframes using specified quantization columns.
+    Merge quantized PMW features from a collection of LazyFrames using specified quantization columns.
     """
-    df = next(iter(dfs))
-    columns = [col.removesuffix("_lt").removesuffix("_gt") for col in df.columns if
+
+    [tee_iterator] = itertools.tee(lfs, 1)
+    lf: pl.LazyFrame = _lookahead(tee_iterator)
+    columns = [col.removesuffix("_lt").removesuffix("_gt") for col in lf.collect_schema().names() if
                not col.endswith("count") and not col.endswith("_gt")]
-    info = DataFrameQuantizationInfo(
-        quant_columns=quant_columns,
-        flag_columns=_get_flag_columns(columns),
-        periodic_columns=_get_periodic_columns(columns),
-        special_columns=_get_special_columns(columns),
-        agg_min_columns=[COLUMN_OCCURRENCE],
-    )
+    info = DataFrameQuantizationInfo.create(columns, quant_columns, agg_off_columns=agg_off_columns)
 
-    return merge_quantized_features(dfs, info)
+    return merge_quantized_features(tee_iterator, info)
 
 
-def merge_quantized_features(dfs: Iterable[pl.DataFrame], info: DataFrameQuantizationInfo) -> pl.DataFrame:
+def merge_quantized_features(lfs: Iterable[pl.LazyFrame], info: DataFrameQuantizationInfo) -> pl.LazyFrame:
     """
-    Merge quantized features from a collection of dataframes using specified quantization configurations.
+    Merge quantized features from a collection of LazyFrames using specified quantization configurations.
     """
-    df = pl.concat(dfs, how="diagonal")
-    row_count_before = len(df)
+    lf = pl.concat(lfs, how="diagonal")
 
-    columns = [col.removesuffix("_lt").removesuffix("_gt") for col in df.columns if
+    columns = [col.removesuffix("_lt").removesuffix("_gt") for col in lf.collect_schema().names() if
                not col.endswith("count") and not col.endswith("_gt")]
-
-    agg_mean_cols = [col for col in columns if
-                     col not in info.quant_columns and
-                     col not in info.flag_columns and
-                     col not in info.periodic_columns and
-                     col not in info.special_columns and
-                     col not in info.agg_min_columns]
+    agg_mean_cols = info.get_agg_mean_columns(columns)
 
     special_dict = _get_special_dict()
 
     def aggregate_mean(col):
         return (pl.col(col) * pl.col(f"{col}_count")).sum() / pl.col(f"{col}_count").sum()
 
-    estimated_size = df.estimated_size() / (1024 * 1024)
-    logging.info("Estimated dataframe size: %.2f MB", estimated_size)
+    # estimated_size = df.estimated_size() / (1024 * 1024)
+    # logging.info("Estimated dataframe size: %.2f MB", estimated_size)
 
-    df_result = (
-        df
+    lf_result = (
+        lf
         .group_by(info.quant_columns)
         .agg(*[pl.col(flag_col).flatten() for flag_col in info.flag_columns],
              *[expr
@@ -447,19 +497,26 @@ def merge_quantized_features(dfs: Iterable[pl.DataFrame], info: DataFrameQuantiz
                for expr in [aggregate_mean(mean_col),
                             pl.col(f"{mean_col}_count").sum()]],
              *[pl.col(min_col).min() for min_col in info.agg_min_columns],
+             *[pl.col(off_col).list.explode() for off_col in info.agg_off_columns],
              pl.col(COLUMN_COUNT).sum(),
              )
     )
 
     for flag_col in tqdm(info.flag_columns):
-        df_result = _aggregate_structs(df_result, flag_col)
+        lf_result = _aggregate_structs(lf_result, info.quant_columns, flag_col)
 
-    row_count_after = len(df_result)
-    logging.info("Quantized features into %d/%d", row_count_after, row_count_before)
+    # logging.info("query explanation:\n%s", lf_result.explain(streaming=True))
 
-    assert df_result[COLUMN_COUNT].sum() == df[COLUMN_COUNT].sum()
-    return df_result
+    if DEBUG_FLAG:
+        row_count_before = lf.select(pl.len()).collect(engine="streaming").item()
+        row_count_after = lf_result.select(pl.len()).collect(engine="streaming").item()
+        logging.info("Quantized features into %d/%d", row_count_after, row_count_before)
 
+    # assert df_result[COLUMN_COUNT].sum() == df[COLUMN_COUNT].sum()
+    return lf_result
+
+
+###############################################################################
 
 def filter_surface_type(df, flag_value: int | List[int]) -> pl.DataFrame:
     """
@@ -477,7 +534,7 @@ def filter_surface_type(df, flag_value: int | List[int]) -> pl.DataFrame:
     )
 
 
-def expand_occurrence_column(df: pl.DataFrame) -> pl.DataFrame:
+def expand_occurrence_column(df: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:
     """
     Expand column into three, containing time of the first occurrence, longitude, and latitude.
     """

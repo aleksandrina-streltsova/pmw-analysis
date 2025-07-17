@@ -1,5 +1,5 @@
 """
-This module provides utilities for working with GPM data stored in pandas format.
+This module provides utilities for working with data stored in pandas format.
 """
 import pandas as pd
 

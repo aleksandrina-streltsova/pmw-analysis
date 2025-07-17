@@ -1,5 +1,9 @@
-from typing import List
+"""
+This module provides utilities for working with data stored in polars format.
+"""
+from typing import List, Optional, Sequence
 
+import numpy as np
 import polars as pl
 
 
@@ -29,3 +33,27 @@ def weighted_quantiles(value_count: pl.DataFrame, quantiles: List[float], value_
         results.append(interp_value)
 
     return results
+
+
+def get_column_ranges(df: pl.DataFrame, columns: Optional[Sequence[str]] = None) -> np.ndarray:
+    """
+    Retrieve the minimum and maximum values for each column in a DataFrame and return them as a range.
+    """
+    columns = columns if columns is not None else df.columns
+    return np.stack([
+        df.select(pl.col(columns).min()).to_numpy().flatten(),
+        df.select(pl.col(columns).max()).to_numpy().flatten()
+    ], axis=1)
+
+
+def take_k_sorted(df: pl.DataFrame, by: str | Sequence[str], k: int, count: str, descending: bool):
+    """
+    Take the top k rows from a sorted DataFrame based on cumulative count.
+    """
+    column_count_cumsum = f"{count}_cumsum"
+
+    df = df.sort(by, descending=descending)
+    df = df.with_columns(pl.col(count).cast(pl.UInt64).cum_sum().alias(column_count_cumsum))
+
+    df_k = df.filter(pl.col(column_count_cumsum) <= k)
+    return df_k
