@@ -1,7 +1,7 @@
 """
 This module contains GPM PMW 1B and 1C products community-based retrievals.
 """
-from typing import Union, Optional, Callable, List, Dict, Tuple
+from typing import Union, Callable, List, Dict, Tuple
 
 import gpm.utils.pmw
 import pandas as pd
@@ -19,7 +19,7 @@ import pmw_analysis.utils.pmw
 
 def _retrieve_frequency_difference_xr(
         ds: xr.Dataset,
-        variable: Optional[str],
+        variable: str | None,
         find_pairs: Callable[[List[PMWFrequency]], Dict[str, Tuple[PMWFrequency, PMWFrequency]]],
         prefix: str,
         name: str,
@@ -55,7 +55,7 @@ def _retrieve_frequency_difference_xr(
 
 def _retrieve_frequency_difference_pd(
         df: pd.DataFrame,
-        variable: Optional[str],
+        variable: str | None,
         find_pairs: Callable[[List[PMWFrequency]], Dict[str, Tuple[PMWFrequency, PMWFrequency]]],
         prefix: str,
         name: str,
@@ -88,7 +88,7 @@ def _retrieve_frequency_difference_pd(
 
 def _retrieve_difference(
         data: Union[xr.Dataset, pd.DataFrame],
-        variable: Optional[str],
+        variable: str | None,
         find_pairs: Callable[[List[PMWFrequency]], Dict[str, Tuple[PMWFrequency, PMWFrequency]]],
         prefix: str,
         name: str,
@@ -102,7 +102,7 @@ def _retrieve_difference(
 
 def retrieve_polarization_difference(
         data: Union[xr.Dataset, pd.DataFrame],
-        variable: Optional[str] = None,
+        variable: str | None = None,
 ) -> Union[xr.Dataset, pd.DataFrame]:
     """
     Retrieve PMW Channels Polarized Difference (PD).
@@ -112,7 +112,7 @@ def retrieve_polarization_difference(
 
 def retrieve_frequency_difference(
         data: Union[xr.Dataset, pd.DataFrame],
-        variable: Optional[str] = None,
+        variable: str | None = None,
 ) -> Union[xr.Dataset, pd.DataFrame]:
     """
     Retrieve PMW Channels Frequency Difference (FD).

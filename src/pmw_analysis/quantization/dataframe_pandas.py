@@ -2,7 +2,7 @@
 This module contains feature extraction from xarray DataSet to DataFrame.
 """
 import warnings
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
 import gpm.bucket
 import pandas as pd
@@ -39,8 +39,8 @@ def segment_features_into_bins(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str
 def read_time_series_and_drop_nan(bucket_dir: str,
                                   point: Tuple[float, float],
                                   distance: float,
-                                  name: Optional[str] = None,
-                                  feature_columns: Optional[List[str]] = None) -> pd.DataFrame:
+                                  name: str | None = None,
+                                  feature_columns: List[str] | None = None) -> pd.DataFrame:
     """
     Read a geographic bucket and remove missing values.
     """
@@ -67,7 +67,7 @@ def read_time_series_and_drop_nan(bucket_dir: str,
     return ts_pd
 
 
-def remove_missing_values(df: pd.DataFrame, subset: Optional[List[str]] = None) -> pd.DataFrame:
+def remove_missing_values(df: pd.DataFrame, subset: List[str] | None = None) -> pd.DataFrame:
     """
     Remove missing values from a DataFrame and print the number of rows removed.
     """

@@ -1,7 +1,7 @@
 """
 This module provides utilities for working with data stored in Polars format.
 """
-from typing import List, Optional, Sequence
+from typing import List, Sequence
 
 import numpy as np
 import polars as pl
@@ -35,7 +35,7 @@ def weighted_quantiles(value_count: pl.DataFrame, quantiles: List[float], value_
     return results
 
 
-def get_column_ranges(df: pl.DataFrame, columns: Optional[Sequence[str]] = None) -> np.ndarray:
+def get_column_ranges(df: pl.DataFrame, columns: Sequence[str] | None = None) -> np.ndarray:
     """
     Retrieve the minimum and maximum values for each column in a DataFrame and return them as a range.
     """

@@ -4,7 +4,7 @@ This module provides utilities for plotting with `matplotlib.pyplot`.
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -195,9 +195,9 @@ def plot_histograms2d(hist_datas: List[HistogramData], path: Path, title: str,
 
 
 def finalize_axis(axes: plt.Axes,
-                  title: Optional[str],
-                  x_label: Optional[str],
-                  y_label: Optional[str],
+                  title: str | None,
+                  x_label: str | None,
+                  y_label: str | None,
                   ):
     """
     Finalize plot by setting title and labels.

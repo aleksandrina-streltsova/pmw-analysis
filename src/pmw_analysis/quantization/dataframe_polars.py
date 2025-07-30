@@ -4,7 +4,7 @@ This module contains methods for quantization of data using Polars data frames.
 import itertools
 import logging
 from dataclasses import dataclass
-from typing import Dict, Tuple, List, Optional, Sequence
+from typing import Dict, Tuple, List, Sequence
 
 import pandas as pd
 import polars as pl
@@ -155,7 +155,7 @@ def get_uncertainties_dict(tc_columns: Sequence[str]) -> Dict[str, float]:
 def _round(lf: pl.DataFrame | pl.LazyFrame,
            quant_columns: Sequence[str],
            quant_steps: Sequence[float | int],
-           quant_ranges: Optional[Sequence[Tuple[float | int, float | int]]]) -> pl.DataFrame | pl.LazyFrame:
+           quant_ranges: Sequence[Tuple[float | int, float | int]] | None) -> pl.DataFrame | pl.LazyFrame:
     if quant_ranges is not None:
         lf = lf.with_columns([pl.col(c).clip(lower, upper) for c, (lower, upper) in zip(quant_columns, quant_ranges)])
 
@@ -316,7 +316,7 @@ def _aggregate(lf: pl.DataFrame | pl.LazyFrame, info: DataFrameQuantizationInfo)
 #### PREPROCESSING PIPELINE ####
 def quantize_pmw_features(lf: pl.DataFrame | pl.LazyFrame, quant_columns: Sequence[str],
                           uncertainty_dict: Dict[str, float],
-                          range_dict: Optional[Dict[str, float]],
+                          range_dict: Dict[str, float] | None,
                           agg_off_columns: Sequence[str] = ()) -> pl.DataFrame | pl.LazyFrame:
     """
     Quantize PMW feature columns and performs group-wise aggregation on data stored in Polars format.

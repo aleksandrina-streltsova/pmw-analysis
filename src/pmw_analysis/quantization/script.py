@@ -4,7 +4,7 @@ Script for performing quantization on data from bucket.
 import argparse
 import logging
 import pathlib
-from typing import Dict, Callable, List, Optional, Sequence
+from typing import Dict, Callable, List, Sequence
 
 import gpm
 import matplotlib.pyplot as plt
@@ -42,8 +42,8 @@ def _calculate_bounds():
 
 
 def quantize(path: pathlib.Path, transform: Callable, factor: float,
-             month: Optional[int],
-             year: Optional[int],
+             month: int | None,
+             year: int | None,
              agg_off_columns: List[str]):
     """
     Quantize fractions of data from bucket.

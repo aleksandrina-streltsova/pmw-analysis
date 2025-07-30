@@ -3,7 +3,7 @@ This module contains utilities for analyzing quantized transformed data.
 """
 import argparse
 import pathlib
-from typing import Optional, List, Callable, Tuple
+from typing import List, Callable, Tuple
 
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -26,7 +26,7 @@ from pmw_analysis.utils.polars import get_column_ranges, take_k_sorted
 from pmw_analysis.utils.pyplot import finalize_axis
 
 
-def plot_point_accumulation(path: pathlib.Path, var: Optional[str]):
+def plot_point_accumulation(path: pathlib.Path, var: str | None):
     """
     Plot the accumulation of unique points over time for a given dataset.
 
@@ -34,7 +34,7 @@ def plot_point_accumulation(path: pathlib.Path, var: Optional[str]):
     ----------
         path : pathlib.Path
             Path to the input parquet file containing the dataset.
-        var : Optional[str]
+        var : str | None
             Optional variable name to perform additional analysis.
 
     """
@@ -91,7 +91,7 @@ def _plot_var_over_time(df: pl.DataFrame, var: str, axes: np.ndarray[plt.Axes]) 
     return fig_var
 
 
-def analyze(path: pathlib.Path, var: Optional[str], transform: Callable, k: Optional[int]):
+def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | None):
     """
     Generate pairplots of features for a given dataset.
 
@@ -99,7 +99,7 @@ def analyze(path: pathlib.Path, var: Optional[str], transform: Callable, k: Opti
     ----------
         path : pathlib.Path
             Path to the input parquet file containing the dataset.
-        var : Optional[str]
+        var : str | None
             Optional variable name to color pairplots by. If None, pairplots are colored by counts of signatures.
 
     """
@@ -150,7 +150,7 @@ def _sorted_not_null_unique_values(df: pl.DataFrame, col: str) -> pl.Series:
     return df[col].unique().drop_nulls().sort()
 
 
-def _cum_sum_over_time(df: pl.DataFrame, var: Optional[str] = None, descending: bool = False) -> pl.DataFrame:
+def _cum_sum_over_time(df: pl.DataFrame, var: str | None = None, descending: bool = False) -> pl.DataFrame:
     if var is None:
         df = df.group_by(COLUMN_OCCURRENCE_TIME).agg(
             pl.len().alias(COLUMN_ACCUM_UNIQUE),
@@ -248,7 +248,7 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
         fig.savefig(images_path / f"count_{group_name}_{len(feature_columns)}.png")
 
 
-def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: Optional[np.ndarray], n_bins: np.ndarray,
+def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: np.ndarray | None, n_bins: np.ndarray,
                                           cmap, norm, ax: plt.Axes, feature_ranges: np.ndarray):
     xs = np.ones(n_bins.sum())
     n_bins_cumsum = np.cumsum(n_bins)
@@ -303,7 +303,7 @@ def _plot_hist(value_count_pd: pd.DataFrame, tc_col, group_name, images_path: pa
 
 def _calculate_pairplots_concat_matrix(df: pl.DataFrame, feature_columns: List[str],
                                        feature_ranges: np.ndarray, n_bins: np.ndarray,
-                                       var: Optional[str]):
+                                       var: str | None):
     n_bins_cumsum = np.cumsum(n_bins)
     n_bins_cumsum = np.insert(n_bins_cumsum, 0, 0)
 
