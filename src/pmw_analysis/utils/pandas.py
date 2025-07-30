@@ -1,5 +1,5 @@
 """
-This module provides utilities for working with data stored in pandas format.
+This module provides utilities for working with data stored in Pandas format.
 """
 import pandas as pd
 
@@ -16,7 +16,7 @@ def get_default_variable(df: pd.DataFrame, possible_variables) -> str:
     Parameters
     ----------
     df : pandas.DataFrame
-        The pandas DataFrame to inspect.
+        The Pandas DataFrame to inspect.
     possible_variables : list of str
         The variable names to look for.
 

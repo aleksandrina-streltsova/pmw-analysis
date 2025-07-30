@@ -300,7 +300,7 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     return factor
 
 
-def _find_factor_using_binary_search(lfs: Sequence[pl.LazyFrame], quant_columns: Sequence[str],
+def _find_factor_using_binary_search(lfs: Sequence[pl.DataFrame | pl.LazyFrame], quant_columns: Sequence[str],
                                      uncertainty_dict: Dict[str, float], range_dict: Dict[str, float]):
     uncertainty_factor_l = 0
     uncertainty_factor_r = UNCERTAINTY_FACTOR_MAX

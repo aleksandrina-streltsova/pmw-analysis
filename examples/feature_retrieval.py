@@ -125,7 +125,7 @@ def main():
             plt.savefig(images_dir / f"{var}_{suffix}.png")
         plt.show()
 
-    # Convert xarray Dataset to pandas DataFrame
+    # Convert Xarray Dataset to Pandas DataFrame
     df_pd = ds_pd.reset_coords(names=COLUMN_TIME).reset_coords(drop=True).to_dataframe()
     # TODO: why does PD_165 have NaN? should rows with NaNs be processed differently?
     df_pd_cut, feature_cols = segment_features_into_bins(df_pd)

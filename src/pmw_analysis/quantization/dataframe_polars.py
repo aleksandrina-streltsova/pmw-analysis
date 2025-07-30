@@ -80,7 +80,7 @@ def _get_special_dict() -> Dict[str, Tuple[float, str]]:
 
 
 #### PROCESSING MISSING VALUES ####
-def _replace_special_missing_values_with_null(lf: pl.LazyFrame) -> pl.LazyFrame:
+def _replace_special_missing_values_with_null(lf: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:
     columns = lf.collect_schema().names()
     lf_result = lf.with_columns([
                                     pl.col(col).replace({-99: None, -9999: None})
@@ -265,7 +265,7 @@ class DataFrameQuantizationInfo:
                 col not in self.agg_off_columns]
 
 
-def _aggregate(lf: pl.LazyFrame, info: DataFrameQuantizationInfo) -> pl.LazyFrame:
+def _aggregate(lf: pl.DataFrame | pl.LazyFrame, info: DataFrameQuantizationInfo) -> pl.DataFrame | pl.LazyFrame:
     columns = lf.collect_schema().names()
     agg_mean_cols = info.get_agg_mean_columns(columns)
 
@@ -314,12 +314,12 @@ def _aggregate(lf: pl.LazyFrame, info: DataFrameQuantizationInfo) -> pl.LazyFram
 
 
 #### PREPROCESSING PIPELINE ####
-def quantize_pmw_features(lf: pl.LazyFrame, quant_columns: Sequence[str],
+def quantize_pmw_features(lf: pl.DataFrame | pl.LazyFrame, quant_columns: Sequence[str],
                           uncertainty_dict: Dict[str, float],
                           range_dict: Optional[Dict[str, float]],
-                          agg_off_columns: Sequence[str] = ()) -> pl.LazyFrame:
+                          agg_off_columns: Sequence[str] = ()) -> pl.DataFrame | pl.LazyFrame:
     """
-    Quantize PMW feature columns and performs group-wise aggregation on a Polars LazyFrame.
+    Quantize PMW feature columns and performs group-wise aggregation on data stored in Polars format.
     """
     # 1. Replace NaN, -99, and -9999 by nulls.
     lf = lf.fill_nan(None)
@@ -355,26 +355,26 @@ def quantize_pmw_features(lf: pl.LazyFrame, quant_columns: Sequence[str],
     return quantize_features(lf, info)
 
 
-def quantize_features(lf: pl.LazyFrame, info: DataFrameQuantizationInfo) -> pl.LazyFrame:
+def quantize_features(lf: pl.DataFrame | pl.LazyFrame, info: DataFrameQuantizationInfo) -> pl.DataFrame | pl.LazyFrame:
     """
-    Quantize specified feature columns and performs group-wise aggregation on a Polars LazyFrame.
+    Quantize specified feature columns and performs group-wise aggregation on data stored in Polars format.
 
     This function performs two main operations:
       1. Rounds numerical features (`quant_columns`).
-      2. Aggregates the LazyFrame based on the quantized values,
-      computing descriptive statistics over other types of columns.
+      2. Aggregates data based on the quantized values, computing descriptive statistics over other types of columns.
 
     Parameters
     ----------
-    lf : pl.LazyFrame
-        The input Polars LazyFrame containing features to quantize and aggregate.
+    lf : pl.DataFrame | pl.LazyFrame
+        The input data stored in Polars format containing features to quantize and aggregate.
 
     info : DataFrameQuantizationInfo
         Input information required for performing quantization algorithm.
 
     Returns
     -------
-        pl.LazyFrame: Aggregated LazyFrame where rows with similar feature profiles are grouped and summarized.
+        pl.DataFrame | pl.LazyFrame
+            Aggregated data where rows with similar feature profiles are grouped and summarized.
     """
 
     lf_result = _round(lf, info.quant_columns, info.quant_steps, info.quant_ranges)
@@ -399,7 +399,8 @@ def _get_struct_list_type(flag_column: str) -> pl.List:
     ]))
 
 
-def _aggregate_structs(lf: pl.LazyFrame, quant_columns: Sequence[str], flag_column: str) -> pl.LazyFrame:
+def _aggregate_structs(lf: pl.DataFrame | pl.LazyFrame, quant_columns: Sequence[str],
+                       flag_column: str) -> pl.DataFrame | pl.LazyFrame:
     # TODO: the commented approach doesn't work with lazy frame, seemingly because of ".with_row_index()"
     # lf = lf.with_row_index() # track original rows
     # lf_result = (
@@ -435,12 +436,12 @@ def _aggregate_structs(lf: pl.LazyFrame, quant_columns: Sequence[str], flag_colu
     return lf_result
 
 
-def merge_quantized_pmw_features(lfs: Sequence[pl.LazyFrame],
+def merge_quantized_pmw_features(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
                                  quant_columns: Sequence[str],
                                  agg_off_columns: Sequence[str] = (),
-                                 ) -> pl.LazyFrame | pl.DataFrame:
+                                 ) -> pl.DataFrame | pl.LazyFrame:
     """
-    Merge quantized PMW features from a collection of LazyFrames using specified quantization columns.
+    Merge quantized PMW features from a collection of Polars data structures using specified quantization columns.
     """
     assert len(lfs) > 0, "No data to merge was provided."
     columns = [col.removesuffix("_lt").removesuffix("_gt") for col in lfs[0].collect_schema().names() if
@@ -450,9 +451,10 @@ def merge_quantized_pmw_features(lfs: Sequence[pl.LazyFrame],
     return merge_quantized_features(lfs, info)
 
 
-def merge_quantized_features(lfs: Sequence[pl.LazyFrame], info: DataFrameQuantizationInfo) -> pl.LazyFrame:
+def merge_quantized_features(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
+                             info: DataFrameQuantizationInfo) -> pl.DataFrame | pl.LazyFrame:
     """
-    Merge quantized features from a collection of LazyFrames using specified quantization configurations.
+    Merge quantized features from a collection of Polars data structures using specified quantization configurations.
     """
     lf = pl.concat(lfs, how="diagonal")
 

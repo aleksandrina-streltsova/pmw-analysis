@@ -1,5 +1,5 @@
 """
-This module provides utilities for working with data stored in polars format.
+This module provides utilities for working with data stored in Polars format.
 """
 from typing import List, Optional, Sequence
 
