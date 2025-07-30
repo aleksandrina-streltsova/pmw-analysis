@@ -4,7 +4,7 @@ This module contains methods for quantization of data using Polars data frames.
 import itertools
 import logging
 from dataclasses import dataclass
-from typing import Dict, Tuple, Iterable, List, Optional, Sequence
+from typing import Dict, Tuple, List, Optional, Sequence
 
 import pandas as pd
 import polars as pl
@@ -16,7 +16,7 @@ from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME
 
 
 #### COLUMNS ####
-def _get_columns_to_drop(columns: Iterable[str]) -> Iterable[str]:
+def _get_columns_to_drop(columns: Sequence[str]) -> Sequence[str]:
     columns_to_drop = [
         'gpm_id',
         'gpm_granule_id',
@@ -28,11 +28,11 @@ def _get_columns_to_drop(columns: Iterable[str]) -> Iterable[str]:
     return [col for col in columns if col in columns_to_drop]
 
 
-def _get_tc_columns(columns: Iterable[str]) -> Iterable[str]:
+def _get_tc_columns(columns: Sequence[str]) -> Sequence[str]:
     return [col for col in columns if col.startswith("Tc")]
 
 
-def _get_flag_columns(columns: Iterable[str]) -> Iterable[str]:
+def _get_flag_columns(columns: Sequence[str]) -> Sequence[str]:
     flag_columns = [
         'Quality_LF',  # 0 .. 3, -99
         'SCorientation',  # 0 180, -8000, -9999
@@ -47,7 +47,7 @@ def _get_flag_columns(columns: Iterable[str]) -> Iterable[str]:
 
 
 # TODO: depends on info
-def _get_periodic_columns(columns: Iterable[str]) -> Iterable[str]:
+def _get_periodic_columns(columns: Sequence[str]) -> Sequence[str]:
     periodic_columns = [
         'sunLocalTime',  # mean of [0, 12], mean of [12, 24]
         'lon',  # mean of [-180, 0], mean of [0, 180]
@@ -56,7 +56,7 @@ def _get_periodic_columns(columns: Iterable[str]) -> Iterable[str]:
     return [col for col in columns if col in periodic_columns]
 
 
-def _get_special_columns(columns: Iterable[str]) -> Iterable[str]:
+def _get_special_columns(columns: Sequence[str]) -> Sequence[str]:
     special_columns = [
         'sunGlintAngle_LF',  # mean, [0, 127], -88, -99
         'sunGlintAngle_HF',  # mean, [0, 127] -88, -99
@@ -140,7 +140,7 @@ def _get_frequency(key: str):
     return freq
 
 
-def get_uncertainties_dict(tc_columns: Iterable[str]) -> Dict[str, float]:
+def get_uncertainties_dict(tc_columns: Sequence[str]) -> Dict[str, float]:
     """
     Create a dictionary of expected uncertainties for each Tc column.
     """
@@ -153,9 +153,9 @@ def get_uncertainties_dict(tc_columns: Iterable[str]) -> Dict[str, float]:
 
 
 def _round(lf: pl.DataFrame | pl.LazyFrame,
-           quant_columns: Iterable[str],
-           quant_steps: Iterable[float | int],
-           quant_ranges: Optional[Iterable[Tuple[float | int, float | int]]]) -> pl.DataFrame | pl.LazyFrame:
+           quant_columns: Sequence[str],
+           quant_steps: Sequence[float | int],
+           quant_ranges: Optional[Sequence[Tuple[float | int, float | int]]]) -> pl.DataFrame | pl.LazyFrame:
     if quant_ranges is not None:
         lf = lf.with_columns([pl.col(c).clip(lower, upper) for c, (lower, upper) in zip(quant_columns, quant_ranges)])
 
@@ -175,38 +175,38 @@ class DataFrameQuantizationInfo:
 
     Attributes
     ----------
-    quant_columns : Iterable[str]
+    quant_columns : Sequence[str]
         Columns whose values will be quantized (rounded to nearest step) and used for grouping.
 
-    quant_steps :  Iterable[float | int]
+    quant_steps :  Sequence[float | int]
         Step sizes used for quantizing each column in `quant_columns`. Must match the length of `quant_columns`.
 
-    quant_ranges : Iterable[Tuple[float | int, float | int]], optional
+    quant_ranges : Sequence[Tuple[float | int, float | int]], optional
         Value ranges used for clipping (limiting) `quant_columns`. Must match the length of `quant_columns`.
 
-    flag_columns : Iterable[str], optional
+    flag_columns : Sequence[str], optional
         Columns with discrete classification or quality flags (e.g., cloud status, surface type).
         These are aggregated by computing value counts, producing a list of structs per group.
 
-    periodic_columns : Iterable[str], optional
+    periodic_columns : Sequence[str], optional
         Columns with periodic or cyclic values (e.g., longitude, local solar time, day of year).
         These are aggregated using conditional means split at a predefined midpoint:
             - Values less than or equal to the midpoint (e.g., before noon) are averaged separately from
               values greater than the midpoint (e.g., after noon).
         This allows better representation of mean behavior across cycles.
 
-    special_columns : Iterable[str], optional
+    special_columns : Sequence[str], optional
         Columns with special sentinel values indicating non-physical states (e.g., -88 = "below horizon").
         These are aggregated by computing:
           - Mean of valid (non-sentinel) values.
           - Count of sentinel values.
           - Count of valid values.
 
-    agg_min_columns : Iterable[str], optional
+    agg_min_columns : Sequence[str], optional
         Columns where only the minimum value is retained for each group.
         This is typically used for timestamp fields (e.g., earliest observation in group).
 
-    agg_off_columns : Iterable[str], optional
+    agg_off_columns : Sequence[str], optional
         Columns whose values are stored in lists, without aggregation.
 
     periodic_dict : Dict[str, float], optional
@@ -218,21 +218,21 @@ class DataFrameQuantizationInfo:
         Example: {'sunGlintAngle_LF': (-88, "below_horizon")}
 
     """
-    quant_columns: Iterable[str]
-    quant_steps: Iterable[float | int] = None
-    quant_ranges: Iterable[Tuple[float | int, float | int]] = None
-    flag_columns: Iterable[str] = ()
-    periodic_columns: Iterable[str] = ()
-    special_columns: Iterable[str] = ()
-    agg_min_columns: Iterable[str] = ()
-    agg_off_columns: Iterable[str] = ()
+    quant_columns: Sequence[str]
+    quant_steps: Sequence[float | int] = None
+    quant_ranges: Sequence[Tuple[float | int, float | int]] = None
+    flag_columns: Sequence[str] = ()
+    periodic_columns: Sequence[str] = ()
+    special_columns: Sequence[str] = ()
+    agg_min_columns: Sequence[str] = ()
+    agg_off_columns: Sequence[str] = ()
     periodic_dict: Dict[str, float] = None
     special_dict: Dict[str, Tuple[float, str]] = None
 
     @staticmethod
-    def create(columns: Iterable[str], quant_columns: Iterable[str], quant_steps: Iterable[float | int] = None,
-               quant_ranges: Iterable[Tuple[float | int, float | int]] = None,
-               agg_off_columns: Iterable[str] = (), periodic_dict: Dict[str, float] = None,
+    def create(columns: Sequence[str], quant_columns: Sequence[str], quant_steps: Sequence[float | int] = None,
+               quant_ranges: Sequence[Tuple[float | int, float | int]] = None,
+               agg_off_columns: Sequence[str] = (), periodic_dict: Dict[str, float] = None,
                special_dict: Dict[str, Tuple[float, str]] = None) -> "DataFrameQuantizationInfo":
         """
         Create a DataFrameQuantizationInfo object from a list of columns.
@@ -314,10 +314,10 @@ def _aggregate(lf: pl.LazyFrame, info: DataFrameQuantizationInfo) -> pl.LazyFram
 
 
 #### PREPROCESSING PIPELINE ####
-def quantize_pmw_features(lf: pl.LazyFrame, quant_columns: Iterable[str],
+def quantize_pmw_features(lf: pl.LazyFrame, quant_columns: Sequence[str],
                           uncertainty_dict: Dict[str, float],
                           range_dict: Optional[Dict[str, float]],
-                          agg_off_columns: Iterable[str] = ()) -> pl.LazyFrame:
+                          agg_off_columns: Sequence[str] = ()) -> pl.LazyFrame:
     """
     Quantize PMW feature columns and performs group-wise aggregation on a Polars LazyFrame.
     """
@@ -392,14 +392,6 @@ def quantize_features(lf: pl.LazyFrame, info: DataFrameQuantizationInfo) -> pl.L
 
 
 #### MERGING PREPROCESSED DATA ####
-def _lookahead(tee_iterator: itertools.tee):
-    """
-    Return the next value without moving the input forward.
-    """
-    [forked_iterator] = itertools.tee(tee_iterator, 1)
-    return next(forked_iterator)
-
-
 def _get_struct_list_type(flag_column: str) -> pl.List:
     return pl.List(pl.Struct([
         pl.Field(flag_column, pl.Int16),
@@ -407,7 +399,7 @@ def _get_struct_list_type(flag_column: str) -> pl.List:
     ]))
 
 
-def _aggregate_structs(lf: pl.LazyFrame, quant_columns: Iterable[str], flag_column: str) -> pl.LazyFrame:
+def _aggregate_structs(lf: pl.LazyFrame, quant_columns: Sequence[str], flag_column: str) -> pl.LazyFrame:
     # TODO: the commented approach doesn't work with lazy frame, seemingly because of ".with_row_index()"
     # lf = lf.with_row_index() # track original rows
     # lf_result = (
@@ -443,24 +435,22 @@ def _aggregate_structs(lf: pl.LazyFrame, quant_columns: Iterable[str], flag_colu
     return lf_result
 
 
-def merge_quantized_pmw_features(lfs: Iterable[pl.LazyFrame],
-                                 quant_columns: Iterable[str],
-                                 agg_off_columns: Iterable[str] = (),
+def merge_quantized_pmw_features(lfs: Sequence[pl.LazyFrame],
+                                 quant_columns: Sequence[str],
+                                 agg_off_columns: Sequence[str] = (),
                                  ) -> pl.LazyFrame | pl.DataFrame:
     """
     Merge quantized PMW features from a collection of LazyFrames using specified quantization columns.
     """
-
-    [tee_iterator] = itertools.tee(lfs, 1)
-    lf: pl.LazyFrame = _lookahead(tee_iterator)
-    columns = [col.removesuffix("_lt").removesuffix("_gt") for col in lf.collect_schema().names() if
+    assert len(lfs) > 0, "No data to merge was provided."
+    columns = [col.removesuffix("_lt").removesuffix("_gt") for col in lfs[0].collect_schema().names() if
                not col.endswith("count") and not col.endswith("_gt")]
     info = DataFrameQuantizationInfo.create(columns, quant_columns, agg_off_columns=agg_off_columns)
 
-    return merge_quantized_features(tee_iterator, info)
+    return merge_quantized_features(lfs, info)
 
 
-def merge_quantized_features(lfs: Iterable[pl.LazyFrame], info: DataFrameQuantizationInfo) -> pl.LazyFrame:
+def merge_quantized_features(lfs: Sequence[pl.LazyFrame], info: DataFrameQuantizationInfo) -> pl.LazyFrame:
     """
     Merge quantized features from a collection of LazyFrames using specified quantization configurations.
     """

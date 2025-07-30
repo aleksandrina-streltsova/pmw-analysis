@@ -458,7 +458,7 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         for k in range(len(dfs)):
             expected[k + 1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
 
-        lfs = map(lambda df: df.lazy(), dfs)
+        lfs = [df.lazy() for df in dfs]
         actual = merge_quantized_pmw_features(lfs, TC_COLUMNS, agg_off_columns).collect()
         actual = actual.with_columns([
             pl.col(flag_col).list.sort()

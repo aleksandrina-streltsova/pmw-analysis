@@ -4,7 +4,7 @@ Script for performing quantization on data from bucket.
 import argparse
 import logging
 import pathlib
-from typing import Dict, Callable, List, Optional
+from typing import Dict, Callable, List, Optional, Sequence
 
 import gpm
 import matplotlib.pyplot as plt
@@ -12,7 +12,6 @@ import numpy as np
 import polars as pl
 from gpm.bucket import LonLatPartitioning
 from gpm.bucket.io import get_bucket_spatial_partitioning
-from jedi.inference.value.iterable import Sequence
 from tqdm import tqdm
 
 from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, COLUMN_COUNT, \
