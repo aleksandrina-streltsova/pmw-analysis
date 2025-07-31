@@ -150,7 +150,8 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         info = DataFrameQuantizationInfo.create(columns, tc_cols,
                                                 agg_off_columns=agg_off_columns,
                                                 periodic_dict=_get_periodic_dict(),
-                                                special_dict=_get_special_dict())
+                                                special_dict=_get_special_dict(),
+                                                agg_off_limit=4)
 
         agg_mean_columns = info.get_agg_mean_columns(columns)
 
@@ -251,9 +252,9 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         # agg_off
         for i, agg_off_col in enumerate(info.agg_off_columns):
             if i == 0:
-                row0 = [-1, i, i, i + 1, None]
+                row0 = [-1, i, i, i + 1]
             else:
-                row0 = [i, i, i, i + 1, None]
+                row0 = [i, i, i, i + 1]
             expected = _assign_value(expected, pl.lit(row0), agg_off_col, row=0)
             expected = _assign_value(expected, pl.lit([0]), agg_off_col, row=1)
         # other
@@ -436,9 +437,9 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         # agg_off
         for i, agg_off_col in enumerate(info.agg_off_columns):
             if i == 0:
-                row0 = [-1, 0, 0, 1, None] * 3
+                row0 = [-1, 0, 0, 1, None]
             else:
-                row0 = [i, i, i, i + 1, None] * 3
+                row0 = [i, i, i, i + 1, None]
             expected = _assign_value(expected, pl.lit(row0), agg_off_col, row=0)
             expected = _assign_value(expected, pl.lit([0]), agg_off_col, row=1)
             expected = _assign_value(expected, pl.lit([0, 0]), agg_off_col, row=2)
@@ -459,7 +460,7 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
             expected[k + 1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
 
         lfs = [df.lazy() for df in dfs]
-        actual = merge_quantized_pmw_features(lfs, TC_COLUMNS, agg_off_columns).collect()
+        actual = merge_quantized_pmw_features(lfs, TC_COLUMNS, agg_off_columns, agg_off_limit=5).collect()
         actual = actual.with_columns([
             pl.col(flag_col).list.sort()
             for flag_col in info.flag_columns

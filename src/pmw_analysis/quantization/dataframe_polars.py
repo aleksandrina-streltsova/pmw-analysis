@@ -1,7 +1,6 @@
 """
 This module contains methods for quantization of data using Polars data frames.
 """
-import itertools
 import logging
 from dataclasses import dataclass
 from typing import Dict, Tuple, List, Sequence
@@ -12,7 +11,7 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, \
     COLUMN_LON, COLUMN_LAT, COLUMN_OCCURRENCE, COLUMN_OCCURRENCE_TIME, COLUMN_OCCURRENCE_LON, COLUMN_OCCURRENCE_LAT, \
-    DEBUG_FLAG
+    DEBUG_FLAG, AGG_OFF_LIMIT
 
 
 #### COLUMNS ####
@@ -217,6 +216,9 @@ class DataFrameQuantizationInfo:
         Dictionary specifying the sentinel value and its label for each `special_column`.
         Example: {'sunGlintAngle_LF': (-88, "below_horizon")}
 
+    agg_off_limit : int
+        Number of rows to include in `agg_off_columns` before dropping them.
+
     """
     quant_columns: Sequence[str]
     quant_steps: Sequence[float | int] = None
@@ -228,12 +230,16 @@ class DataFrameQuantizationInfo:
     agg_off_columns: Sequence[str] = ()
     periodic_dict: Dict[str, float] = None
     special_dict: Dict[str, Tuple[float, str]] = None
+    agg_off_limit: int = AGG_OFF_LIMIT
 
     @staticmethod
     def create(columns: Sequence[str], quant_columns: Sequence[str], quant_steps: Sequence[float | int] = None,
                quant_ranges: Sequence[Tuple[float | int, float | int]] = None,
-               agg_off_columns: Sequence[str] = (), periodic_dict: Dict[str, float] = None,
-               special_dict: Dict[str, Tuple[float, str]] = None) -> "DataFrameQuantizationInfo":
+               agg_off_columns: Sequence[str] = (),
+               periodic_dict: Dict[str, float] = None,
+               special_dict: Dict[str, Tuple[float, str]] = None,
+               agg_off_limit: int = AGG_OFF_LIMIT,
+               ) -> "DataFrameQuantizationInfo":
         """
         Create a DataFrameQuantizationInfo object from a list of columns.
         """
@@ -250,6 +256,7 @@ class DataFrameQuantizationInfo:
             agg_off_columns=agg_off_columns,
             periodic_dict=periodic_dict,
             special_dict=special_dict,
+            agg_off_limit=agg_off_limit,
         )
 
     def get_agg_mean_columns(self, columns: Sequence[str]) -> Sequence[str]:
@@ -300,7 +307,7 @@ def _aggregate(lf: pl.DataFrame | pl.LazyFrame, info: DataFrameQuantizationInfo)
               for expr in
               [pl.col(mean_col).mean(), (pl.len() - pl.col(mean_col).null_count()).alias(f"{mean_col}_count")]],
 
-            *[pl.col(off_col) for off_col in info.agg_off_columns],
+            pl.col(info.agg_off_columns).head(info.agg_off_limit),
 
             *[pl.col(min_col).min() for min_col in info.agg_min_columns],
             pl.len().alias(COLUMN_COUNT),
@@ -317,7 +324,9 @@ def _aggregate(lf: pl.DataFrame | pl.LazyFrame, info: DataFrameQuantizationInfo)
 def quantize_pmw_features(lf: pl.DataFrame | pl.LazyFrame, quant_columns: Sequence[str],
                           uncertainty_dict: Dict[str, float],
                           range_dict: Dict[str, float] | None,
-                          agg_off_columns: Sequence[str] = ()) -> pl.DataFrame | pl.LazyFrame:
+                          agg_off_columns: Sequence[str] = (),
+                          agg_off_limit: int = AGG_OFF_LIMIT,
+                          ) -> pl.DataFrame | pl.LazyFrame:
     """
     Quantize PMW feature columns and performs group-wise aggregation on data stored in Polars format.
     """
@@ -350,7 +359,8 @@ def quantize_pmw_features(lf: pl.DataFrame | pl.LazyFrame, quant_columns: Sequen
     info = DataFrameQuantizationInfo.create(lf_agg_columns, quant_columns, quant_steps, quant_ranges,
                                             agg_off_columns=agg_off_columns,
                                             periodic_dict=_get_periodic_dict(),
-                                            special_dict=_get_special_dict())
+                                            special_dict=_get_special_dict(),
+                                            agg_off_limit=agg_off_limit)
 
     return quantize_features(lf, info)
 
@@ -439,6 +449,7 @@ def _aggregate_structs(lf: pl.DataFrame | pl.LazyFrame, quant_columns: Sequence[
 def merge_quantized_pmw_features(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
                                  quant_columns: Sequence[str],
                                  agg_off_columns: Sequence[str] = (),
+                                 agg_off_limit: int = AGG_OFF_LIMIT,
                                  ) -> pl.DataFrame | pl.LazyFrame:
     """
     Merge quantized PMW features from a collection of Polars data structures using specified quantization columns.
@@ -446,7 +457,9 @@ def merge_quantized_pmw_features(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
     assert len(lfs) > 0, "No data to merge was provided."
     columns = [col.removesuffix("_lt").removesuffix("_gt") for col in lfs[0].collect_schema().names() if
                not col.endswith("count") and not col.endswith("_gt")]
-    info = DataFrameQuantizationInfo.create(columns, quant_columns, agg_off_columns=agg_off_columns)
+    info = DataFrameQuantizationInfo.create(columns, quant_columns,
+                                            agg_off_columns=agg_off_columns,
+                                            agg_off_limit=agg_off_limit)
 
     return merge_quantized_features(lfs, info)
 
@@ -489,7 +502,7 @@ def merge_quantized_features(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
                for expr in [aggregate_mean(mean_col),
                             pl.col(f"{mean_col}_count").sum()]],
              *[pl.col(min_col).min() for min_col in info.agg_min_columns],
-             *[pl.col(off_col).list.explode() for off_col in info.agg_off_columns],
+             pl.col(info.agg_off_columns).list.explode().head(info.agg_off_limit),
              pl.col(COLUMN_COUNT).sum(),
              )
     )

@@ -97,3 +97,5 @@ ST_GROUP_MISC = ['Sea-Ice',
                  'Standing Water']
 
 EXTENT_GREENLAND = [-73, -11, 59, 83]
+
+AGG_OFF_LIMIT = 100
