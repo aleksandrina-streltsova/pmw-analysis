@@ -34,3 +34,4 @@ dependencies:
   - torchaudio
   - cuda-version=12.1
   - faiss-gpu=1.9.0=*cuda*
+  - ConfigArgParse

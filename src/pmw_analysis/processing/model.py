@@ -1,12 +1,12 @@
 """
 Script for running clusterization on quantized transformed data.
 """
-import argparse
 import logging
 import pathlib
 import pickle
 from typing import Callable, Tuple, Any
 
+import configargparse
 import hdbscan
 import joblib
 import polars as pl
@@ -19,7 +19,6 @@ from torchdr.utils import faiss
 from tqdm import tqdm
 from umap import UMAP
 from umap.umap_ import nearest_neighbors
-
 
 from pmw_analysis.constants import COLUMN_COUNT, PMW_ANALYSIS_DIR, ST_COLUMNS, ST_GROUP_VEGETATION, \
     ST_GROUP_OCEAN, ST_GROUP_SNOW
@@ -42,6 +41,7 @@ class ClusterModel:
     """
     A machine learning pipeline which combines a scaler, dimensionality reducer, and a clustering model.
     """
+
     def __init__(self, scaler, reducer, clusterer):
         self.scaler = scaler
         self.reducer = reducer
@@ -74,6 +74,7 @@ class CLusterIndexModel:
     """
     A clustering model which clusters data using nearest neighbors search with a precomputed index.
     """
+
     def __init__(self, index_train, labels_train):
         self.index_train = index_train
         self.labels_train = labels_train
@@ -91,6 +92,7 @@ class DimensionalityReductionIndexModel:
     """
     A dimensionality reduction model which reduces data using nearest neighbors search with a precomputed index.
     """
+
     def __init__(self, index_train, embeddings_train):
         self.index_train = index_train
         self.embeddings_train = embeddings_train
@@ -305,13 +307,14 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
 
 def main():
     logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser(description="Run KMeans++ on data and plot results using PCA for visualization")
+    parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
+                                           description="Run clusterization and visualize results using DR")
 
-    parser.add_argument("--transform", "-t", default="default",
+    parser.add_argument("--transform", default="default",
                         choices=["default", "pd", "ratio", "partial", "v1", "v2", "v3"],
                         help="Type of transformation performed on data")
-    parser.add_argument("-d", "--reduction", choices=["pca", "umap"])
-    parser.add_argument("-c", "--clusterization", choices=["kmeans", "hdbscan"])
+    parser.add_argument("--reduction", choices=["pca", "umap"])
+    parser.add_argument("--clusterization", choices=["kmeans", "hdbscan"])
 
     args = parser.parse_args()
     transform = get_transformation_function(args.transform)

@@ -1,10 +1,10 @@
 """
 This module contains functions for plotting clusterization results on map.
 """
-import argparse
 import pathlib
 from typing import List, Callable
 
+import configargparse
 import gpm
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
@@ -147,13 +147,14 @@ def plot_map(model_path: pathlib.Path, transform: Callable):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Plot clusterization results on map")
+    parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
+                                           description="Plot clusterization results on map")
 
-    parser.add_argument("--transform", "-t", default="default",
+    parser.add_argument("--transform", default="default",
                         choices=["default", "pd", "ratio", "partial", "v1", "v2"],
                         help="Type of transformation performed on data")
-    parser.add_argument("-d", "--reduction", choices=["pca", "umap"])
-    parser.add_argument("-c", "--clusterization", choices=["kmeans", "hdbscan"])
+    parser.add_argument("--reduction", choices=["pca", "umap"])
+    parser.add_argument("--clusterization", choices=["kmeans", "hdbscan"])
 
     args = parser.parse_args()
     model_path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / f"{args.reduction}_{args.clusterization}.pkl"

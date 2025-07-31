@@ -1,11 +1,11 @@
 """
 Script for performing quantization on data from bucket.
 """
-import argparse
 import logging
 import pathlib
 from typing import Dict, Callable, List, Sequence
 
+import configargparse
 import gpm
 import matplotlib.pyplot as plt
 import numpy as np
@@ -397,19 +397,20 @@ def get_transformation_function(arg_transform: str) -> Callable:
 def main():
     logging.basicConfig(level=logging.INFO)
 
-    parser = argparse.ArgumentParser(description="Run quantization")
+    parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
+                                           description="Run quantization")
 
-    parser.add_argument("--step", "-s", default="factor", choices=["factor", "quantize", "merge"],
+    parser.add_argument("--step", default="factor", choices=["factor", "quantize", "merge"],
                         help="Quantization pipeline's step to perform")
-    parser.add_argument("--transform", "-t", default="default",
+    parser.add_argument("--transform", default="default",
                         choices=["default", "pd", "ratio", "v1", "v2", "v3"],
                         help="Type of transformation to perform on data")
     parser.add_argument("--dir", default=PMW_ANALYSIS_DIR,
                         help="Path to the directory to store quantized data in")
     parser.add_argument("--agg-off-cols", default=[], nargs="+",
                         help="Columns whose values are stored in lists, without aggregation")
-    parser.add_argument("--month", default=None, type=int, help="Month of the data to quantize")
-    parser.add_argument("--year", default=None, type=int, help="Year of the data to quantize")
+    parser.add_argument("--month", type=int, help="Month of the data to quantize")
+    parser.add_argument("--year", type=int, help="Year of the data to quantize")
 
     args = parser.parse_args()
 

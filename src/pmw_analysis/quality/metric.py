@@ -1,9 +1,9 @@
 """
 This module contains functions for calculating metrics for clustering evaluation.
 """
-import argparse
 import pathlib
 
+import configargparse
 import gpm
 import gpm.bucket
 import matplotlib.pyplot as plt
@@ -163,13 +163,14 @@ def main(model_path, transform):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Calculate F1-score")
+    parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
+                                           description="Calculate F1-score")
 
-    parser.add_argument("--transform", "-t", default="default",
+    parser.add_argument("--transform", default="default",
                         choices=["default", "pd", "ratio", "partial", "v1", "v2"],
                         help="Type of transformation performed on data")
-    parser.add_argument("-d", "--reduction", choices=["pca", "umap"])
-    parser.add_argument("-c", "--clusterization", choices=["kmeans", "hdbscan"])
+    parser.add_argument("--reduction", choices=["pca", "umap"])
+    parser.add_argument("--clusterization", choices=["kmeans", "hdbscan"])
 
     args = parser.parse_args()
     main(

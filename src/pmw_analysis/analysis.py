@@ -1,10 +1,10 @@
 """
 This module contains utilities for analyzing quantized transformed data.
 """
-import argparse
 import pathlib
 from typing import List, Callable, Tuple
 
+import configargparse
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -366,20 +366,16 @@ def _set_histograms2d_label(fig: plt.Figure, ax: plt.Axes, columns: List[str], i
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyse quantized PMW features")
-    subparsers = parser.add_subparsers(dest="analysis", required=True, help="Analysis to perform")
-    parser.add_argument("--transform", "-t", default="default",
+    parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
+                                           description="Analyse quantized PMW features")
+    parser.add_argument("--analysis", default="accum", choices=["accum", "pairplot"], required=True,
+                        help="Analysis to perform")
+    parser.add_argument("--transform", default="default",
                         choices=["default", "pd", "ratio", "v1", "v2", "v3"],
                         help="Type of transformation performed on data")
-    parser.add_argument("--path", default=None,
-                        help="Transformed data path if it is different from the default one")
-
-    pairplot_parser = subparsers.add_parser("pairplot", help="")
-    pairplot_parser.add_argument("--var", "-v", help="Variable to color by in pair plots")
-    pairplot_parser.add_argument("-k", type=int, help="Number of newest signatures to plot in red")
-
-    accum_parser = subparsers.add_parser("accum", help="")
-    accum_parser.add_argument("--var", "-v", help="Variable to ")
+    parser.add_argument("--path", help="Transformed data path if it is different from the default one")
+    parser.add_argument("--var", help="Variable to use in analysis")
+    parser.add_argument("--k", type=int, help="Number of newest signatures to plot in red")
 
     args = parser.parse_args()
 
