@@ -23,8 +23,8 @@ from pmw_analysis.utils.polars import weighted_quantiles
 
 UNCERTAINTY_FACTOR_MAX = 20
 
-X_STEP = 1
-Y_STEP = 1
+X_STEP = 10
+Y_STEP = 4
 
 
 def _calculate_bounds():
