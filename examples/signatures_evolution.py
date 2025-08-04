@@ -131,19 +131,21 @@ def main():
     # df = lf.filter(pl.col(column_count_cumsum) <= K).collect(engine="streaming")
     ###################
 
-    m_occurrences = 8
+    m_occurrences = 1
     quant_columns_with_suffix = [f"{col}{COLUMN_SUFFIX_QUANT}" for col in quant_columns]
     df_k_quant_m = df_k.select(quant_columns_with_suffix).group_by(quant_columns_with_suffix).agg(pl.len().alias(COLUMN_COUNT))
     df_k_quant_m = df_k_quant_m.filter(pl.col(COLUMN_COUNT) >= m_occurrences)
 
     df_k_m = df_k.join(df_k_quant_m, on=quant_columns_with_suffix, how="inner")
 
+    feature_columns = TC_COLUMNS
     quality_flag_columns = [
         # 'Quality_LF',
         # 'Quality_HF',
         'L1CqualityFlag',
         'qualityFlag',
     ]
+    sun_glint_angle_columns = ["sunGlintAngle_LF", "sunGlintAngle_HF"]
 
     # extent = [-73, -11, 59, 83] # Greenland
     extent = [-180, 180, -70, 70]
@@ -155,21 +157,21 @@ def main():
 
     get_mode_col = lambda col: f"{col}_mode"
 
-    feature_columns = TC_COLUMNS
     expressions = (
             [pl.col(col).mean() for col in feature_columns] +
             [pl.col(feature_columns[0]).count().alias(COLUMN_COUNT)] +
             [pl.col(quality_flag_columns)] +
             [pl.col(flag_col).mode().first().alias(get_mode_col(flag_col)) for flag_col in quality_flag_columns] +
-            [pl.col(VARIABLE_SURFACE_TYPE_INDEX).mode().first()]
+            [pl.col(VARIABLE_SURFACE_TYPE_INDEX).mode().first()] +
+            [pl.col(col).eq(-88).sum() / pl.len() for col in sun_glint_angle_columns]
     )
 
     texts = (
             {col: "Mean of bin values" for col in feature_columns} |
             {COLUMN_COUNT: "Count of bin values"} |
             {VARIABLE_SURFACE_TYPE_INDEX: "Mode of bin values"} |
-            {col: "0 if 0 is present in bin, otherwise, mode" for col in quality_flag_columns}
-
+            {col: "0 if 0 is present in bin, otherwise, mode" for col in quality_flag_columns} |
+            {col: "Share of values equal to -88 in bin" for col in sun_glint_angle_columns}
     )
 
     grouped_df = df_with_bin_k_m.group_by(partitioning.levels)
@@ -189,7 +191,9 @@ def main():
     ds: xr.Dataset = set_dataset_crs(ds, crs=crs)
 
     m_occurrences_text = "" if m_occurrences == 1 else f"; Signature occurred at least {m_occurrences} times."
-    for var in ds.data_vars:
+    for i, var in enumerate(ds.data_vars):
+        # if i >= 2:
+        #     break
         plot_kwargs, cbar_kwargs = _get_plot_kwargs_for_variable(ds, var)
 
         p = ds[var].gpm.plot_map(x="longitude", y="latitude",
