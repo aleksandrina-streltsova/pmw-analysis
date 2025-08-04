@@ -7,18 +7,22 @@ import faiss
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
+import pycolorbar
+import pycolorbar.norm
 import pyproj
 import xarray as xr
 from gpm.bucket import LonLatPartitioning
 from gpm.dataset.crs import set_dataset_crs
+from gpm.visualization.plot import _sanitize_cartopy_plot_kwargs
+from pycolorbar import get_plot_kwargs
 from tqdm import tqdm
 
 from pmw_analysis.constants import PMW_ANALYSIS_DIR, COLUMN_COUNT, TC_COLUMNS, COLUMN_OCCURRENCE, \
-    AGG_OFF_COLUMNS, SAVEFIG_FLAG
-from pmw_analysis.utils.polars import take_k_sorted
+    AGG_OFF_COLUMNS, SAVEFIG_FLAG, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_SUFFIX_QUANT
 from pmw_analysis.quantization.dataframe_polars import merge_quantized_pmw_features, \
     get_uncertainties_dict
 from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.utils.polars import take_k_sorted
 
 K = 100000
 
@@ -55,7 +59,7 @@ def _calculate_nn_distances(df_all: pl.DataFrame, df_k: pl.DataFrame):
 def main():
     quant_columns = TC_COLUMNS
 
-    images_dir = pathlib.Path("images/k_unique")
+    images_dir = pathlib.Path("images/default/k_newest")
     images_dir.mkdir(exist_ok=True, parents=True)
 
     lfs = []
@@ -112,8 +116,9 @@ def main():
     df_quantized.write_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "unique.parquet")
     df.write_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "unique_k.parquet")
 
+    # TODO: replace `unique` with `final` or `newest` for consistency
     df_quantized = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "unique.parquet")
-    df = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "unique_k.parquet")
+    df_k = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "final_k.parquet")
     df.select(["lon", "lat", "qualityFlag"]).row(distances.argmax())
 
     ###################
@@ -126,45 +131,102 @@ def main():
     # df = lf.filter(pl.col(column_count_cumsum) <= K).collect(engine="streaming")
     ###################
 
-    df_exploded = df.explode(AGG_OFF_COLUMNS)
+    m_occurrences = 8
+    quant_columns_with_suffix = [f"{col}{COLUMN_SUFFIX_QUANT}" for col in quant_columns]
+    df_k_quant_m = df_k.select(quant_columns_with_suffix).group_by(quant_columns_with_suffix).agg(pl.len().alias(COLUMN_COUNT))
+    df_k_quant_m = df_k_quant_m.filter(pl.col(COLUMN_COUNT) >= m_occurrences)
+
+    df_k_m = df_k.join(df_k_quant_m, on=quant_columns_with_suffix, how="inner")
+
+    quality_flag_columns = [
+        # 'Quality_LF',
+        # 'Quality_HF',
+        'L1CqualityFlag',
+        'qualityFlag',
+    ]
 
     # extent = [-73, -11, 59, 83] # Greenland
     extent = [-180, 180, -70, 70]
 
     partitioning = LonLatPartitioning(size=0.5, extent=extent)
 
-    df_exploded = partitioning.add_labels(df_exploded, x="lon", y="lat")
-    df_exploded = partitioning.add_centroids(df_exploded, x="lon", y="lat", x_coord="lon_bin", y_coord="lat_bin")
+    df_with_bin_k_m = partitioning.add_labels(df_k_m, x="lon", y="lat")
+    df_with_bin_k_m = partitioning.add_centroids(df_with_bin_k_m, x="lon", y="lat", x_coord="lon_bin", y_coord="lat_bin")
 
-    list_variables = TC_COLUMNS
-    list_expressions = (
-            [pl.col(variable).mean().name.prefix("mean_") for variable in list_variables] +
-            [pl.col(list_variables[0]).count().alias("count")]
+    get_mode_col = lambda col: f"{col}_mode"
+
+    feature_columns = TC_COLUMNS
+    expressions = (
+            [pl.col(col).mean() for col in feature_columns] +
+            [pl.col(feature_columns[0]).count().alias(COLUMN_COUNT)] +
+            [pl.col(quality_flag_columns)] +
+            [pl.col(flag_col).mode().first().alias(get_mode_col(flag_col)) for flag_col in quality_flag_columns] +
+            [pl.col(VARIABLE_SURFACE_TYPE_INDEX).mode().first()]
     )
 
-    grouped_df = df_exploded.group_by(partitioning.levels)
-    df_agg = grouped_df.agg(*list_expressions)
+    texts = (
+            {col: "Mean of bin values" for col in feature_columns} |
+            {COLUMN_COUNT: "Count of bin values"} |
+            {VARIABLE_SURFACE_TYPE_INDEX: "Mode of bin values"} |
+            {col: "0 if 0 is present in bin, otherwise, mode" for col in quality_flag_columns}
+
+    )
+
+    grouped_df = df_with_bin_k_m.group_by(partitioning.levels)
+    df_agg = grouped_df.agg(*expressions)
+
+    df_agg = df_agg.with_columns([
+        pl.when(pl.col(flag_col).list.contains(0)).then(0).otherwise(pl.col(get_mode_col(flag_col))).alias(flag_col)
+        for flag_col in quality_flag_columns
+    ]).drop([get_mode_col(flag_col) for flag_col in quality_flag_columns])
 
     ds = partitioning.to_xarray(df_agg, spatial_coords=("lon_bin", "lat_bin"))
     ds = ds.rename({"lon_bin": "longitude", "lat_bin": "latitude"})
 
-    fig_kwargs = {"figsize": (15, 7), "dpi": 300}
-    cbar_kwargs = {"extend": "both",
-                   "extendfrac": 0.05,
-                   "label": "Brightness Temperature [K]"}
+    fig_kwargs = {"figsize": (17, 7), "dpi": 300}
 
     crs = pyproj.CRS.from_epsg(4326)
     ds: xr.Dataset = set_dataset_crs(ds, crs=crs)
 
+    m_occurrences_text = "" if m_occurrences == 1 else f"; Signature occurred at least {m_occurrences} times."
     for var in ds.data_vars:
-        p = ds[var].gpm.plot_map(x="longitude", y="latitude", cmap="Spectral_r",
+        plot_kwargs, cbar_kwargs = _get_plot_kwargs_for_variable(ds, var)
+
+        p = ds[var].gpm.plot_map(x="longitude", y="latitude",
+                                 **plot_kwargs,
                                  fig_kwargs=fig_kwargs,
                                  cbar_kwargs=cbar_kwargs)
-        p.axes.set_title(var)
+        p.axes.set_title(f"{var}\n{texts[var]}{m_occurrences_text}")
         p.set_extent(extent)
+
         if SAVEFIG_FLAG:
-            plt.savefig(images_dir / f"{var}.png")
+            plt.savefig(images_dir / f"{var}_{m_occurrences}.png")
         plt.show()
+
+
+def _get_plot_kwargs_for_variable(ds, var):
+    if var in TC_COLUMNS:
+        plot_kwargs, cbar_kwargs = get_plot_kwargs("brightness_temperature")
+        # TODO: why is `alpha_bad = 0.5` if all the plots are with `alpha_bad = 0.0`?
+        return _sanitize_cartopy_plot_kwargs(plot_kwargs), cbar_kwargs
+
+    if var in pycolorbar.colorbars.names:
+        return get_plot_kwargs(var)
+
+    plot_kwargs = {}
+    cbar_kwargs = None
+
+    unique_values = np.unique(ds[var].values)
+    unique_values = unique_values[~np.isnan(unique_values)]
+    count_unique_values = len(unique_values)
+
+    if count_unique_values < 10:
+        if np.all(np.isclose(unique_values % 1, 0)):
+            unique_values = unique_values.astype(int)
+        norm = pycolorbar.norm.CategoryNorm({i: str(v) for i, v in enumerate(unique_values)})
+        plot_kwargs = {"norm": norm}
+
+    return plot_kwargs, cbar_kwargs
 
 
 if __name__ == '__main__':
