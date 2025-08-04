@@ -104,10 +104,15 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
 
     """
     df_merged = pl.read_parquet(path)
+    if COLUMN_COUNT not in df_merged.columns:
+        df_merged = df_merged.with_columns(pl.lit(1).alias(COLUMN_COUNT))
 
     feature_columns = transform(TC_COLUMNS)
+    feature_columns = [col for col in feature_columns if col != var]
 
-    df = df_merged[feature_columns + [VARIABLE_SURFACE_TYPE_INDEX, COLUMN_COUNT, COLUMN_OCCURRENCE]]
+    df = df_merged[feature_columns +
+                   [VARIABLE_SURFACE_TYPE_INDEX, COLUMN_COUNT, COLUMN_OCCURRENCE] +
+                   ([] if var is None else [var])]
     if k is not None:
         df_k = take_k_sorted(df, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
     else:
@@ -127,14 +132,14 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
         print(f"{tc_col} has {unique_value_count} unique non-null values.")
         print(f"{tc_col} has {null_count} missing values.")
 
-        n_bins.append(unique_value_count)
+        n_bins.append(min(unique_value_count, 50))
 
     n_bins = np.array(n_bins)
 
     feature_ranges = get_column_ranges(df, feature_columns)
 
     images_path = pathlib.Path("images") / path.parent.name
-    images_path.mkdir(exist_ok=True)
+    images_path.mkdir(parents=True, exist_ok=True)
 
     groups = [
         (None, None, None),
@@ -203,15 +208,13 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
     df_to_use_k = df_k
 
     if flag_values is not None:
-        df_to_use = df_to_use[feature_columns + [VARIABLE_SURFACE_TYPE_INDEX]]
         df_to_use = filter_surface_type(df_to_use, flag_values)
 
         if df_to_use_k is not None:
-            df_to_use_k = df_to_use_k[feature_columns + [VARIABLE_SURFACE_TYPE_INDEX]]
             df_to_use_k = filter_surface_type(df_to_use_k, flag_values)
 
     if var is not None:
-        cmap = "viridis"
+        cmap = "YlGnBu"
 
     hists_mtx = _calculate_pairplots_concat_matrix(df_to_use, feature_columns, feature_ranges, n_bins, var)
     if df_to_use_k is not None:
@@ -239,13 +242,15 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
     _set_histograms2d_label(fig, ax, feature_columns[::-1], is_y=True)
 
     title_suffix = "" if var is None else f" ({var})"
+    fig_suffix = "" if df_k is None else "_k"
+    fig_suffix += "" if var is None else f"_{var}"
 
     if group_name is not None:
         fig.suptitle(group_name + title_suffix, fontsize=30)
-        fig.savefig(images_path / f"count_{group_name.replace("/", "_")}_{len(feature_columns)}.png")
+        fig.savefig(images_path / f"count_{group_name.replace("/", "_")}_{len(feature_columns)}{fig_suffix}.png")
     else:
         fig.suptitle("All Surfaces" + title_suffix, fontsize=30)
-        fig.savefig(images_path / f"count_{group_name}_{len(feature_columns)}.png")
+        fig.savefig(images_path / f"count_{group_name}_{len(feature_columns)}{fig_suffix}.png")
 
 
 def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: np.ndarray | None, n_bins: np.ndarray,

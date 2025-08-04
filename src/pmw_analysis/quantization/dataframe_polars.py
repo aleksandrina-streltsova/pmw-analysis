@@ -340,11 +340,7 @@ def quantize_pmw_features(lf: pl.DataFrame | pl.LazyFrame, quant_columns: Sequen
     )
 
     # 3. Create a column with occurrence info (`time`, `lat`, and `lon`).
-    lf = lf.with_columns(
-        (pl.col(COLUMN_TIME).cast(str) + "|" +
-         pl.col(COLUMN_LON).round(1).cast(str) + "|" +
-         pl.col(COLUMN_LAT).round(1).cast(str)).alias(COLUMN_OCCURRENCE)
-    )
+    lf = create_occurrence_column(lf)
 
     # 4. Drop id columns. Remove `time` column, since we have `sunLocalTime`, `day`, and `occurrence` columns now.
     lf = lf.drop(_get_columns_to_drop([col for col in lf.collect_schema().names() if col not in agg_off_columns]))
@@ -532,11 +528,31 @@ def filter_surface_type(df, flag_value: int | List[int]) -> pl.DataFrame:
     else:
         flag_values = set(flag_value)
 
-    return df.with_columns(
-        pl.col(VARIABLE_SURFACE_TYPE_INDEX).list.eval(
-            pl.element().filter(pl.element().struct.field(VARIABLE_SURFACE_TYPE_INDEX).is_in(flag_values))
-        ).list.first().struct.field(STRUCT_FIELD_COUNT).alias(COLUMN_COUNT)
+    if isinstance(df[VARIABLE_SURFACE_TYPE_INDEX], pl.datatypes.List):
+        df_result = df.with_columns(
+            pl.col(VARIABLE_SURFACE_TYPE_INDEX).list.eval(
+                pl.element().filter(pl.element().struct.field(VARIABLE_SURFACE_TYPE_INDEX).is_in(flag_values))
+            ).list.first().struct.field(STRUCT_FIELD_COUNT).alias(COLUMN_COUNT)
+        )
+    else:
+        df_result = df.filter(pl.col(VARIABLE_SURFACE_TYPE_INDEX).is_in(flag_values))
+    return df_result
+
+
+def create_occurrence_column(df: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:
+    """
+    Create a new column representing occurrences
+    based on a combination of timestamp, rounded longitude, and latitude values.
+    """
+    if COLUMN_OCCURRENCE in df.collect_schema().names():
+        return df
+
+    df = df.with_columns(
+        (pl.col(COLUMN_TIME).cast(str) + "|" +
+         pl.col(COLUMN_LON).round(1).cast(str) + "|" +
+         pl.col(COLUMN_LAT).round(1).cast(str)).alias(COLUMN_OCCURRENCE)
     )
+    return df
 
 
 def expand_occurrence_column(df: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:

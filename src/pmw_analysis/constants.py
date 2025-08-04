@@ -17,6 +17,7 @@ COLUMN_LAT_BIN = "lat_bin"
 COLUMN_GPM_ID = "gpm_id"
 COLUMN_GPM_CROSS_TRACK_ID = "gpm_cross_track_id"
 COLUMN_CLUSTER = "cluster"
+COLUMN_L1C_QUALITY_FLAG = "L1CqualityFlag"
 
 COLUMN_OCCURRENCE_TIME = f"occurrence_{COLUMN_TIME}"
 COLUMN_OCCURRENCE_LON = f"occurrence_{COLUMN_LON}"
