@@ -57,10 +57,11 @@ def _calculate_nn_distances(df_all: pl.DataFrame, df_k: pl.DataFrame):
 
 
 def main():
+    df_dir_path = pathlib.Path(PMW_ANALYSIS_DIR) / "no_sun_glint"
     quant_columns = TC_COLUMNS
 
-    images_dir = pathlib.Path("images/default/k_newest")
-    images_dir.mkdir(exist_ok=True, parents=True)
+    images_dir = pathlib.Path("images") / "map" /  df_dir_path.name
+    images_dir.mkdir(parents=True, exist_ok=True)
 
     lfs = []
     dfs = []
@@ -118,7 +119,7 @@ def main():
 
     # TODO: replace `unique` with `final` or `newest` for consistency
     df_quantized = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "unique.parquet")
-    df_k = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "final_k.parquet")
+    df_k = pl.read_parquet(df_dir_path / "final_k.parquet")
     df.select(["lon", "lat", "qualityFlag"]).row(distances.argmax())
 
     ###################
@@ -227,8 +228,9 @@ def _get_plot_kwargs_for_variable(ds, var):
     if count_unique_values < 10:
         if np.all(np.isclose(unique_values % 1, 0)):
             unique_values = unique_values.astype(int)
-        norm = pycolorbar.norm.CategoryNorm({i: str(v) for i, v in enumerate(unique_values)})
-        plot_kwargs = {"norm": norm}
+        if count_unique_values > 1:
+            norm = pycolorbar.norm.CategoryNorm({i: str(v) for i, v in enumerate(unique_values)})
+            plot_kwargs = {"norm": norm}
 
     return plot_kwargs, cbar_kwargs
 

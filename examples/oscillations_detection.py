@@ -65,7 +65,7 @@ def main():
     name_greenland = "Greenland"
 
     images_dir = pathlib.Path(SAVEFIG_DIR) / "time_series" / "greenland"
-    images_dir.mkdir(exist_ok=True, parents=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
 
     quant_cols = TC_COLUMNS
     unc_dict = {col: 10.0 * unc for col, unc in get_uncertainties_dict(TC_COLUMNS).items()}

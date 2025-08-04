@@ -6,6 +6,7 @@ from typing import Union, Callable, List, Dict, Tuple
 import gpm.utils.pmw
 import pandas as pd
 import xarray as xr
+import polars as pl
 from gpm.utils.pmw import (
     PMWFrequency,
 )
@@ -15,6 +16,7 @@ from gpm.utils.xarray import (
 
 import pmw_analysis.utils.pandas
 import pmw_analysis.utils.pmw
+from pmw_analysis.constants import COLUMN_L1C_QUALITY_FLAG
 
 
 def _retrieve_frequency_difference_xr(
@@ -119,6 +121,11 @@ def retrieve_frequency_difference(
     """
     return _retrieve_difference(data, variable, pmw_analysis.utils.pmw.find_frequency_pairs, "FD",
                                 "frequency difference")
+
+
+def retrieve_possible_sun_glint(data: pl.DataFrame) -> Tuple[pl.DataFrame, str]:
+    sun_glint_column = f"{COLUMN_L1C_QUALITY_FLAG}_SunGlint"
+    return data.with_columns(pl.col(COLUMN_L1C_QUALITY_FLAG).eq(1).alias(sun_glint_column)), sun_glint_column
 
 
 #### ALIAS
