@@ -68,12 +68,11 @@ def quantize(path: pathlib.Path, transform: Callable, factor: float,
             extent = [x_bound_l, x_bound_r, y_bound_l, y_bound_r]
 
             with timing("Reading from bucket"):
-                lf: pl.LazyFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR, columns=None, extent=extent,
-                                                   backend="polars_lazy")
-                if l1_only:
-                    required_columns = set(quant_columns + agg_off_columns + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME])
-                    lf = lf.drop([col for col in lf.collect_schema().names() if col not in required_columns])
+                occurrence_columns = [COLUMN_LON, COLUMN_LAT, COLUMN_TIME]
+                columns = set(quant_columns + agg_off_columns + occurrence_columns) if l1_only else None
 
+                lf: pl.LazyFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR, columns=columns, extent=extent,
+                                                   backend="polars_lazy")
                 if year is not None:
                     lf = lf.filter(pl.col(COLUMN_TIME).dt.year() == year)
                 if month is not None:
