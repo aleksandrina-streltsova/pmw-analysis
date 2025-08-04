@@ -9,8 +9,11 @@ COLUMN_OCCURRENCE = "occurrence"
 COLUMN_TIME = "time"
 COLUMN_TIME_FRACTION = "time_fraction"
 COLUMN_SUFFIX_DOMINANT_CYCLE = "_dominant_cycle"
+COLUMN_SUFFIX_QUANT = "_quant"
 COLUMN_LON = "lon"
 COLUMN_LAT = "lat"
+COLUMN_LON_BIN = "lon_bin"
+COLUMN_LAT_BIN = "lat_bin"
 COLUMN_GPM_ID = "gpm_id"
 COLUMN_GPM_CROSS_TRACK_ID = "gpm_cross_track_id"
 COLUMN_CLUSTER = "cluster"
@@ -54,9 +57,8 @@ TC_COLUMNS = ["Tc_10H", "Tc_10V",
               "Tc_165H", "Tc_165V",
               "Tc_183V3", "Tc_183V7"]
 
-AGG_OFF_COLUMNS = ["time",
-                   "lat", "lon",
-                   "gpm_id", "gpm_cross_track_id"]
+AGG_OFF_COLUMNS = [COLUMN_LAT, COLUMN_LON,
+                   COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID]
 
 ST_COLUMNS = ['Ocean',
               'Sea-Ice',

@@ -15,16 +15,19 @@ from gpm.bucket.io import get_bucket_spatial_partitioning
 from tqdm import tqdm
 
 from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, COLUMN_COUNT, \
-    COLUMN_TIME, DEBUG_FLAG
+    COLUMN_TIME, DEBUG_FLAG, COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID, COLUMN_LON_BIN, COLUMN_LAT_BIN, \
+    COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features
 from pmw_analysis.utils.logging import disable_logging, timing
-from pmw_analysis.utils.polars import weighted_quantiles
+from pmw_analysis.utils.polars import weighted_quantiles, take_k_sorted
 
 UNCERTAINTY_FACTOR_MAX = 20
 
 X_STEP = 10
 Y_STEP = 4
+
+K = 100000
 
 
 def _calculate_bounds():
@@ -374,6 +377,48 @@ def _get_ranges_dict(dir_names: List[str], plot_hists: bool = False) -> Dict[str
     return ranges_dict
 
 
+def get_newest_k(path: pathlib.Path, k: int):
+    # TODO: extract file name to constant
+    df_id = pl.read_parquet(path / "final.parquet")
+    df_id_k =  take_k_sorted(df_id, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
+    df_id_k.write_parquet(path / "final_k.parquet")
+
+
+def _get_bucket_data_for_ids(df_id_k: pl.DataFrame) -> pl.DataFrame:
+    id_columns = [COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID]
+
+    p: LonLatPartitioning = get_bucket_spatial_partitioning(BUCKET_DIR)
+
+    df_id_k = df_id_k.explode(p.levels + id_columns)
+
+    df_id_k = p.add_labels(df_id_k, x=COLUMN_LON, y=COLUMN_LAT)
+    df_id_k = p.add_centroids(df_id_k, x=COLUMN_LON, y=COLUMN_LAT, x_coord=COLUMN_LON_BIN, y_coord=COLUMN_LAT_BIN)
+
+    df_id_k_grouped = df_id_k.group_by(p.levels)
+    agg_off_columns = [col for col in df_id_k.columns if col not in p.levels]
+    df_id_k_agg = df_id_k_grouped.agg(pl.col(agg_off_columns)).sort(p.levels)
+
+    dfs_k_bin = []
+
+    for x_min, x_max, x_c in tqdm(zip(p.x_bounds[:-1], p.x_bounds[1:], p.x_centroids), total=len(p.x_centroids)):
+        for y_min, y_max, y_c in zip(p.y_bounds[:-1], p.y_bounds[1:], p.y_centroids):
+            df_k_bin = df_id_k_agg.filter(pl.col(COLUMN_LON_BIN) == x_c, pl.col(COLUMN_LAT_BIN) == y_c).drop(p.levels)
+            df_k_bin = df_k_bin.explode(agg_off_columns)
+
+            if len(df_k_bin) == 0:
+                continue
+
+            extent = [x_min, x_max, y_min, y_max]
+            df_bin = gpm.bucket.read(bucket_dir=BUCKET_DIR,
+                                     extent=extent,
+                                     backend="polars")
+            df_k_bin = df_k_bin.join(df_bin, on=id_columns, how="inner", suffix=COLUMN_SUFFIX_QUANT)
+            dfs_k_bin.append(df_k_bin)
+
+    df_k = pl.concat(dfs_k_bin)
+    return df_k
+
+
 def get_transformation_function(arg_transform: str) -> Callable:
     """
     Return a transformation function based on the specified argument.
@@ -400,7 +445,7 @@ def main():
     parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
                                            description="Run quantization")
 
-    parser.add_argument("--step", default="factor", choices=["factor", "quantize", "merge"],
+    parser.add_argument("--step", default="factor", choices=["factor", "quantize", "merge", "newest-k"],
                         help="Quantization pipeline's step to perform")
     parser.add_argument("--transform", default="default",
                         choices=["default", "pd", "ratio", "v1", "v2", "v3"],
@@ -435,8 +480,11 @@ def main():
 
     if args.step == "quantize":
         quantize(path, transform, factor, args.month, args.year, args.agg_off_cols)
-    else:
+    elif args.step == "merge":
         merge(path, transform, args.agg_off_cols)
+    else:
+        get_newest_k(path, K)
+
 
 
 if __name__ == '__main__':

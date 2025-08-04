@@ -36,7 +36,7 @@ def _get_flag_columns(columns: Sequence[str]) -> Sequence[str]:
         'Quality_LF',  # 0 .. 3, -99
         'SCorientation',  # 0 180, -8000, -9999
         'Quality_HF',  # 0 .. 3, -99
-        'L1CqualityFlag',  # -10, -7 .. 0
+        'L1CqualityFlag',  # -10, -7 .. 4
         'airmassLiftIndex',  # 0 .. 3
         'pixelStatus',  # 0 .. 5, -99
         'qualityFlag',  # 0 .. 3, -99
