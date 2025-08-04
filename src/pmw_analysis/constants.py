@@ -58,7 +58,7 @@ TC_COLUMNS = ["Tc_10H", "Tc_10V",
               "Tc_165H", "Tc_165V",
               "Tc_183V3", "Tc_183V7"]
 
-AGG_OFF_COLUMNS = [COLUMN_LAT, COLUMN_LON,
+AGG_OFF_COLUMNS = [COLUMN_LON, COLUMN_LAT,
                    COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID]
 
 ST_COLUMNS = ['Ocean',

@@ -1,0 +1,3 @@
+transform: v4
+agg-off-cols: ["lon", "lat", "gpm_id", "gpm_cross_track_id"]
+l1-only: true

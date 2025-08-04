@@ -152,26 +152,70 @@ def merge(path: pathlib.Path, transform: Callable, agg_off_columns: List[str]):
             break
 
 
+def get_pd_col(freq: int) -> str:
+    """
+    Return column name for brightness temperature polarization difference.
+    """
+    return f"pd_{freq}"
+
+
+def get_ratio_col(tc_num: str, tc_denom: str) -> str:
+    """
+    Return column name for the ratio of two brightness temperatures.
+    """
+    return f"ratio_{tc_num.removeprefix("Tc_")}_{tc_denom.removeprefix("Tc_")}"
+
+
+def get_diff_col(tc_min: str, tc_sub: str) -> str:
+    """
+    Return column name for the difference between two brightness temperatures.
+    """
+    return f"diff_{tc_min.removeprefix('Tc_')}_{tc_sub.removeprefix('Tc_')}"
+
+
+def _get_pd_expr(freq: int) -> pl.Expr:
+    return pl.col(f"Tc_{freq}V").sub(pl.col(f"Tc_{freq}H")).alias(get_pd_col(freq))
+
+
+def _get_ratio_expr(tc_num: str, tc_denom: str) -> pl.Expr:
+    return pl.col(tc_num).truediv(pl.col(tc_denom)).alias(get_ratio_col(tc_num, tc_denom))
+
+
+def _get_diff_expr(tc_min: str, tc_sub: str) -> pl.Expr:
+    return pl.col(tc_min).sub(pl.col(tc_sub)).alias(get_diff_col(tc_min, tc_sub))
+
+
+def _add_pd_unc(freq: int, unc_dict: Dict[str, float]):
+    unc_dict[get_pd_col(freq)] = (unc_dict[f"Tc_{freq}V"] + unc_dict[f"Tc_{freq}H"]) / 2
+
+
+def _add_ratio_unc(tc_num: str, tc_denom: str, unc_dict: Dict[str, float]):
+    unc_dict[get_ratio_col(tc_num, tc_denom)] = (unc_dict[tc_num] + unc_dict[tc_denom]) / 100
+
+
+def _add_diff_unc(tc_min: str, tc_sub: str, unc_dict: Dict[str, float]):
+    unc_dict[get_diff_col(tc_min, tc_sub)] = (unc_dict[tc_min] + unc_dict[tc_sub]) / 2
+
+
 def pd_transform(obj):
     """
     Replace vertical polarizations with polarization differences when possible.
     """
     if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
         lf = obj
-        for freq in [19, 37, 89, 165]:
-            lf = lf.with_columns(pl.col(f"Tc_{freq}V").sub(pl.col(f"Tc_{freq}H")))
-        lf = lf.with_columns(pl.col("Tc_183V7").sub(pl.col("Tc_183V3")))
+        lf = lf.with_columns([_get_pd_expr(freq) for freq in [19, 37, 89, 165]])
+        lf = lf.with_columns(_get_diff_expr("Tc_183V7", "Tc_183V3"))
         return lf
 
     if isinstance(obj, Dict):
         unc_dict = obj
         for freq in [19, 37, 89, 165]:
-            unc_dict[f"Tc_{freq}V"] = (unc_dict[f"Tc_{freq}H"] + unc_dict[f"Tc_{freq}V"]) / 2
-        unc_dict["Tc_183V7"] = (unc_dict["Tc_183V3"] + unc_dict["Tc_183V7"]) / 2
+            _add_pd_unc(freq, unc_dict)
+        _add_diff_unc("Tc_183V7", "Tc_183V3", unc_dict)
         return unc_dict
 
     if isinstance(obj, List):
-        return obj
+        return [get_pd_col(freq) for freq in [19, 37, 89, 165]] + [get_diff_col("Tc_183V7", "Tc_183V3")]
 
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
@@ -184,10 +228,7 @@ def ratio_transform(obj):
 
     if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
         lf = obj
-        for tc_col in TC_COLUMNS:
-            if tc_col == tc_denom:
-                continue
-            lf = lf.with_columns(pl.col(tc_col).truediv(pl.col(tc_denom)))
+        lf = lf.with_columns([_get_ratio_expr(tc_col, tc_denom) for tc_col in TC_COLUMNS if tc_col != tc_denom])
         return lf
 
     if isinstance(obj, Dict):
@@ -195,11 +236,11 @@ def ratio_transform(obj):
         for tc_col in TC_COLUMNS:
             if tc_col == tc_denom:
                 continue
-            unc_dict[tc_col] = (unc_dict[tc_col] + unc_dict[tc_denom]) / 100
+            _add_ratio_unc(tc_col, tc_denom, unc_dict)
         return unc_dict
 
     if isinstance(obj, List):
-        return obj
+        return [get_ratio_col(tc_col, tc_denom) for tc_col in TC_COLUMNS if tc_col != tc_denom]
 
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
@@ -207,21 +248,18 @@ def ratio_transform(obj):
 def v1_transform(obj):
     if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
         lf = obj
-        lf = lf.with_columns(
-            pl.col("Tc_37H").truediv(pl.col("Tc_19H")).alias("Tc_37H_Tc_19H"),
-            pl.col("Tc_89V").sub(pl.col("Tc_89H")).alias("PD_89"),
-        )
+        lf = lf.with_columns([_get_ratio_expr("Tc_37H", "Tc_19H"), _get_pd_expr(89)])
         lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_23V", "Tc_165V", "Tc_183V7"]])
         return lf
 
     if isinstance(obj, Dict):
         unc_dict = obj
-        unc_dict["Tc_37H_Tc_19H"] = (unc_dict["Tc_37H"] + unc_dict["Tc_19H"]) / 100
-        unc_dict["PD_89"] = (unc_dict["Tc_89V"] + unc_dict["Tc_89H"]) / 2
+        _add_ratio_unc("Tc_37H", "Tc_19H", unc_dict)
+        _add_pd_unc(89, unc_dict)
         return unc_dict
 
     if isinstance(obj, List):
-        return ["Tc_37H_Tc_19H", "PD_89", "Tc_23V", "Tc_165V", "Tc_183V7"]
+        return [get_ratio_col("Tc_37H", "Tc_19H"), get_pd_col(89), "Tc_23V", "Tc_165V", "Tc_183V7"]
 
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
@@ -229,21 +267,18 @@ def v1_transform(obj):
 def v2_transform(obj):
     if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
         lf = obj
-        lf = lf.with_columns(
-            pl.col("Tc_37H").truediv(pl.col("Tc_19H")).alias("Tc_37H_Tc_19H"),
-            pl.col("Tc_89V").sub(pl.col("Tc_89H")).alias("PD_89"),
-        )
+        lf = lf.with_columns([_get_ratio_expr("Tc_37H", "Tc_19H"), _get_pd_expr(89)])
         lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_19V", "Tc_89V"]])
         return lf
 
     if isinstance(obj, Dict):
         unc_dict = obj
-        unc_dict["Tc_37H_Tc_19H"] = (unc_dict["Tc_37H"] + unc_dict["Tc_19H"]) / 100
-        unc_dict["PD_89"] = (unc_dict["Tc_89V"] + unc_dict["Tc_89H"]) / 2
+        _add_ratio_unc("Tc_37H", "Tc_19H", unc_dict)
+        _add_pd_unc(89, unc_dict)
         return unc_dict
 
     if isinstance(obj, List):
-        return ["Tc_37H_Tc_19H", "PD_89", "Tc_19V", "Tc_89V"]
+        return [get_ratio_col("Tc_37H", "Tc_19H"), get_pd_col(89), "Tc_19V", "Tc_89V"]
 
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
@@ -251,23 +286,46 @@ def v2_transform(obj):
 def v3_transform(obj):
     if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
         lf = obj
-        lf = lf.with_columns(
-            pl.col("Tc_165V").sub(pl.col("Tc_165H")).alias("PD_165"),
-            pl.col("Tc_183V3").sub(pl.col("Tc_183V7")).alias("PD_183"),
-        )
+        lf = lf.with_columns([_get_pd_expr(165), _get_diff_expr("Tc_183V3", "Tc_183V7")])
         lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_23V", "Tc_165V", "Tc_183V3"]])
         return lf
 
     if isinstance(obj, Dict):
         unc_dict = obj
-        unc_dict["PD_165"] = (unc_dict["Tc_165V"] + unc_dict["Tc_165H"]) / 2
-        unc_dict["PD_183"] = (unc_dict["Tc_183V3"] + unc_dict["Tc_183V7"]) / 2
+        _add_pd_unc(165, unc_dict)
+        _add_diff_unc("Tc_183V3", "Tc_183V7", unc_dict)
         return unc_dict
 
     if isinstance(obj, List):
-        return ["Tc_23V", "Tc_165V", "PD_165", "Tc_183V3", "PD_183"]
+        return [get_pd_col(165), get_diff_col("Tc_183V3", "Tc_183V7"), "Tc_23V", "Tc_165V", "Tc_183V3"]
 
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
+
+
+def v4_transform(obj):
+    if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
+        lf = obj
+        lf = lf.with_columns([_get_pd_expr(19), _get_pd_expr(37),
+                              _get_diff_expr("Tc_37V", "Tc_19V"),
+                              _get_diff_expr("Tc_89V", "Tc_37V")])
+        lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_37V"]])
+        return lf
+
+    if isinstance(obj, Dict):
+        unc_dict = obj
+        _add_pd_unc(19, unc_dict)
+        _add_pd_unc(37, unc_dict)
+        _add_diff_unc("Tc_37V", "Tc_19V", unc_dict)
+        _add_diff_unc("Tc_89V", "Tc_37V", unc_dict)
+        return unc_dict
+
+    if isinstance(obj, List):
+        return [get_pd_col(19), get_pd_col(37),
+                get_diff_col("Tc_37V", "Tc_19V"), get_diff_col("Tc_89V", "Tc_37V"),
+                "Tc_37V"]
+
+    raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
+
 
 
 def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
@@ -277,7 +335,7 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     """
     unc_dict = transform(get_uncertainties_dict(TC_COLUMNS))
     # TODO: rewrite to use transform
-    range_dict = _get_ranges_dict(["default", "pd", "ratio"], plot_hists=False)
+    range_dict = _get_ranges_dict(["default", "pd", "ratio", "diff"], plot_hists=False)
 
     logging.info("Reading data")
     np.random.seed(566)
@@ -438,6 +496,8 @@ def get_transformation_function(arg_transform: str) -> Callable:
         transform = v2_transform
     elif arg_transform == "v3":
         transform = v3_transform
+    elif arg_transform == "v4":
+        transform = v4_transform
     else:
         transform = lambda x: x
 
@@ -453,7 +513,7 @@ def main():
     parser.add_argument("--step", default="factor", choices=["factor", "quantize", "merge", "newest-k"],
                         help="Quantization pipeline's step to perform")
     parser.add_argument("--transform", default="default",
-                        choices=["default", "pd", "ratio", "v1", "v2", "v3"],
+                        choices=["default", "pd", "ratio", "v1", "v2", "v3", "v4"],
                         help="Type of transformation to perform on data")
     parser.add_argument("--dir", default=PMW_ANALYSIS_DIR,
                         help="Path to the directory to store quantized data in")
