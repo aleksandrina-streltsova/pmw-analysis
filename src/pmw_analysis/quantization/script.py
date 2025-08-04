@@ -47,7 +47,8 @@ def _calculate_bounds():
 def quantize(path: pathlib.Path, transform: Callable, factor: float,
              month: int | None,
              year: int | None,
-             agg_off_columns: List[str]):
+             agg_off_columns: List[str],
+             l1_only: bool = False):
     """
     Quantize fractions of data from bucket.
     """
@@ -69,6 +70,10 @@ def quantize(path: pathlib.Path, transform: Callable, factor: float,
             with timing("Reading from bucket"):
                 lf: pl.LazyFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR, columns=None, extent=extent,
                                                    backend="polars_lazy")
+                if l1_only:
+                    required_columns = set(quant_columns + agg_off_columns + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME])
+                    lf = lf.drop([col for col in lf.collect_schema().names() if col not in required_columns])
+
                 if year is not None:
                     lf = lf.filter(pl.col(COLUMN_TIME).dt.year() == year)
                 if month is not None:
@@ -456,6 +461,7 @@ def main():
                         help="Columns whose values are stored in lists, without aggregation")
     parser.add_argument("--month", type=int, help="Month of the data to quantize")
     parser.add_argument("--year", type=int, help="Year of the data to quantize")
+    parser.add_argument("--l1-only", type=bool, default=False, help="Remove L2 and L3 data before quantization")
 
     args = parser.parse_args()
 
@@ -479,7 +485,7 @@ def main():
     path.mkdir(parents=True, exist_ok=True)
 
     if args.step == "quantize":
-        quantize(path, transform, factor, args.month, args.year, args.agg_off_cols)
+        quantize(path, transform, factor, args.month, args.year, args.agg_off_cols, args.l1_only)
     elif args.step == "merge":
         merge(path, transform, args.agg_off_cols)
     else:
