@@ -24,7 +24,7 @@ from pmw_analysis.cycle_detection import detect_cycle, plot_cycle, plot_periodog
 from pmw_analysis.quantization.dataframe_pandas import read_time_series_and_drop_nan
 from pmw_analysis.quantization.dataframe_polars import quantize_pmw_features, get_uncertainties_dict, \
     expand_occurrence_column, _round
-from pmw_analysis.quantization.script import _get_ranges_dict
+from pmw_analysis.quantization.script import get_range_dict
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_PD
 from pmw_analysis.utils.pandas import timestamp_to_fraction
 from pmw_analysis.utils.pyplot import scatter_na
@@ -40,9 +40,7 @@ def _is_in_quantized(ts: pd.DataFrame, df_quantized: pl.DataFrame,
                      range_dict: Dict[str, float],
                      ) -> pd.Series:
     quant_steps = [uncertainty_dict[col] for col in quant_columns]
-    quant_ranges = [
-        (range_dict[f"{col}_min"], range_dict[f"{col}_max"]) for col in quant_columns
-    ] if range_dict is not None else None
+    quant_ranges = [(range_dict[f"{col}_min"], range_dict[f"{col}_max"]) for col in quant_columns]
 
     ts_pl = pl.from_pandas(ts[quant_columns])
     ts_pl_rounded = _round(ts_pl.select(quant_columns), quant_columns, quant_steps, quant_ranges)
@@ -69,7 +67,7 @@ def main():
 
     quant_cols = TC_COLUMNS
     unc_dict = {col: 10.0 * unc for col, unc in get_uncertainties_dict(TC_COLUMNS).items()}
-    range_dict = _get_ranges_dict(["default", "pd", "ratio"], plot_hists=False)
+    range_dict = get_range_dict()
 
     # 0. Check signatures that have appeared for the first time later than others
     for point, name in [(point_greenland, name_greenland)]:

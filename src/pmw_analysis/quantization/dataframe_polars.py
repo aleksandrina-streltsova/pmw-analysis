@@ -323,7 +323,7 @@ def _aggregate(lf: pl.DataFrame | pl.LazyFrame, info: DataFrameQuantizationInfo)
 #### PREPROCESSING PIPELINE ####
 def quantize_pmw_features(lf: pl.DataFrame | pl.LazyFrame, quant_columns: Sequence[str],
                           uncertainty_dict: Dict[str, float],
-                          range_dict: Dict[str, float] | None,
+                          range_dict: Dict[str, float],
                           agg_off_columns: Sequence[str] = (),
                           agg_off_limit: int = AGG_OFF_LIMIT,
                           ) -> pl.DataFrame | pl.LazyFrame:
@@ -348,9 +348,7 @@ def quantize_pmw_features(lf: pl.DataFrame | pl.LazyFrame, quant_columns: Sequen
 
     # 5. Quantize Tc columns and group duplicate signatures.
     quant_steps = [uncertainty_dict[col] for col in quant_columns]
-    quant_ranges = [
-        (range_dict[f"{col}_min"], range_dict[f"{col}_max"]) for col in quant_columns
-    ] if range_dict is not None else None
+    quant_ranges = [(range_dict[f"{col}_min"], range_dict[f"{col}_max"]) for col in quant_columns]
 
     info = DataFrameQuantizationInfo.create(lf_agg_columns, quant_columns, quant_steps, quant_ranges,
                                             agg_off_columns=agg_off_columns,

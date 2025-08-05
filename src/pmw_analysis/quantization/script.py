@@ -3,11 +3,12 @@ Script for performing quantization on data from bucket.
 """
 import logging
 import pathlib
+import pickle
+from collections import defaultdict
 from typing import Dict, Callable, List, Sequence
 
 import configargparse
 import gpm
-import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 from gpm.bucket import LonLatPartitioning
@@ -20,7 +21,7 @@ from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COL
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features
 from pmw_analysis.utils.logging import disable_logging, timing
-from pmw_analysis.utils.polars import weighted_quantiles, take_k_sorted
+from pmw_analysis.utils.polars import take_k_sorted
 
 UNCERTAINTY_FACTOR_MAX = 20
 
@@ -53,7 +54,7 @@ def quantize(path: pathlib.Path, transform: Callable, factor: float,
     Quantize fractions of data from bucket.
     """
     unc_dict = {col: factor * unc for col, unc in transform(get_uncertainties_dict(TC_COLUMNS)).items()}
-    range_dict = _get_ranges_dict(["default", "pd", "ratio"], plot_hists=False)
+    range_dict = get_range_dict()
     quant_columns = transform(TC_COLUMNS)
 
     x_bounds, y_bounds = _calculate_bounds()
@@ -334,7 +335,7 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     """
     unc_dict = transform(get_uncertainties_dict(TC_COLUMNS))
     # TODO: rewrite to use transform
-    range_dict = _get_ranges_dict(["default", "pd", "ratio", "diff"], plot_hists=False)
+    range_dict = get_range_dict()
 
     logging.info("Reading data")
     np.random.seed(566)
@@ -392,51 +393,58 @@ def _find_factor_using_binary_search(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
     return uncertainty_factor_r
 
 
-def _get_ranges_dict(dir_names: List[str], plot_hists: bool = False) -> Dict[str, float]:
-    ranges_dict = {}
+def _calculate_ranges_for_bucket():
+    n_obs_in_bucket = 2e10
+    n_top_bottom_obs = int(1e-6 * n_obs_in_bucket)
 
-    for dir_name in dir_names:
-        df_path = pathlib.Path(PMW_ANALYSIS_DIR) / dir_name / "final.parquet"
-        df_merged: pl.DataFrame = pl.read_parquet(df_path)
-        df_merged = df_merged.with_columns(pl.col(COLUMN_COUNT).cast(pl.UInt64))
-        df_merged = df_merged.select(TC_COLUMNS + [COLUMN_COUNT])
+    p: LonLatPartitioning = get_bucket_spatial_partitioning(BUCKET_DIR)
+    y_bounds = list(filter(lambda b: abs(b) <= 70, p.y_bounds))
 
-        if dir_name == "pd":
-            df_merged = df_merged.rename({f"Tc_{freq}V": f"PD_{freq}" for freq in [19, 37, 89, 165]})
-            df_merged = df_merged.drop([tc_col for tc_col in TC_COLUMNS if tc_col in df_merged.columns])
-        elif dir_name == "ratio":
-            tc_denom = "Tc_19H"
-            df_merged = df_merged.rename(
-                {tc_col: f"{tc_col}_{tc_denom}" for tc_col in TC_COLUMNS if tc_col != tc_denom})
-            df_merged = df_merged.drop([tc_col for tc_col in TC_COLUMNS if tc_col in df_merged.columns])
+    tc_denom = "Tc_19H"
+    diff_columns = ["Tc_23V", "Tc_183V7", "Tc_183V3", "Tc_165V", "Tc_89V", "Tc_37V", "Tc_19V", "Tc_10V"]
 
-        for tc_col in [col for col in df_merged.columns if col != COLUMN_COUNT]:
-            value_count = df_merged[[tc_col, COLUMN_COUNT]].group_by(tc_col).sum()
-            value_count = value_count.filter(pl.col(tc_col).is_not_null())
-            value_count = value_count.sort(tc_col)
+    expressions = (
+            [_get_pd_expr(freq) for freq in [10, 19, 37, 89, 165]] +
+            [_get_ratio_expr(tc_num, tc_denom) for tc_num in TC_COLUMNS if tc_num != tc_denom] +
+            [_get_diff_expr(tc_min, tc_sub) for tc_min, tc_sub in zip(diff_columns, diff_columns[1:])]
+    )
 
-            q_min, q_max = weighted_quantiles(value_count, [1e-6, 1 - 1e-6], tc_col, COLUMN_COUNT)
-            ranges_dict[f"{tc_col}_min"] = q_min
-            ranges_dict[f"{tc_col}_max"] = q_max
+    dfs_top = defaultdict(lambda: [])
+    dfs_bottom = defaultdict(lambda: [])
 
-            if plot_hists:
-                fig, ax = plt.subplots(figsize=(10, 6))
-                width = np.median((value_count[tc_col][1:] - value_count[tc_col][:-1]).to_numpy()) / 2
-                ax.bar(value_count[tc_col], value_count[COLUMN_COUNT], width=width)
-                ax.set_xlabel(tc_col)
-                ax.set_ylabel(COLUMN_COUNT)
-                ax.set_yscale("log")
-                ax.set_title(f"{tc_col}")
-                fig.tight_layout()
+    for x_min, x_max in tqdm(zip(p.x_bounds[:-1], p.x_bounds[1:]), total=len(p.x_centroids)):
+        for y_min, y_max in zip(y_bounds[:-1], y_bounds[1:]):
+            df = gpm.bucket.read(BUCKET_DIR, extent=[x_min, x_max, y_min, y_max], backend="polars",
+                                 columns=TC_COLUMNS + [COLUMN_LON, COLUMN_LAT])
+            df = df.drop([COLUMN_LON, COLUMN_LAT])
+            df = df.with_columns(expressions)
+            for col in df.columns:
+                dfs_top[col].append(df[col].top_k(n_top_bottom_obs))
+                dfs_bottom[col].append(df[col].bottom_k(n_top_bottom_obs))
 
-                y_min, y_max = ax.get_ylim()
-                ax.vlines([q_min, q_max], ymin=y_min, ymax=y_max, colors="r")
+    range_dict = {}
 
-                fig.show()
-    # TODO: fix
-    ranges_dict["PD_183_min"] = -np.inf
-    ranges_dict["PD_183_max"] = np.inf
-    return ranges_dict
+    for col, dfs in dfs_top.items():
+        range_dict[f"{col}_max"] = pl.concat(dfs).top_k(n_top_bottom_obs).min()
+
+    for col, dfs in dfs_bottom.items():
+        range_dict[f"{col}_min"] = pl.concat(dfs).bottom_k(n_top_bottom_obs).max()
+
+    return range_dict
+
+
+def get_range_dict() -> Dict[str, float]:
+    """
+    Fetch or calculate a dictionary of ranges and return it.
+    """
+    range_dict_path = pathlib.Path(PMW_ANALYSIS_DIR) / "range_dict.pkl"
+    if range_dict_path.exists():
+        range_dict = pickle.load(open(range_dict_path, "rb"))
+        return range_dict
+
+    range_dict = _calculate_ranges_for_bucket()
+    pickle.dump(range_dict, open(range_dict_path, 'wb'))
+    return range_dict
 
 
 def get_newest_k(path: pathlib.Path, k: int):
