@@ -20,7 +20,7 @@ from pmw_analysis.constants import (
     SAVEFIG_DIR,
     BUCKET_DIR, TC_COLUMNS, AGG_OFF_COLUMNS, COLUMN_LAT, COLUMN_LON, PMW_ANALYSIS_DIR,
 )
-from pmw_analysis.cycle_detection import detect_cycle, plot_cycle, plot_periodogram
+from pmw_analysis.analysis.cycle_detection import detect_cycle, plot_cycle, plot_periodogram
 from pmw_analysis.quantization.dataframe_pandas import read_time_series_and_drop_nan
 from pmw_analysis.quantization.dataframe_polars import quantize_pmw_features, get_uncertainties_dict, \
     expand_occurrence_column, _round

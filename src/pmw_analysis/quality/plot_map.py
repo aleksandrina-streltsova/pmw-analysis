@@ -16,7 +16,7 @@ import xarray as xr
 from pmw_analysis.constants import PRODUCT_1C_GMI_R, PRODUCT_TYPE_RS, VERSION, \
     STORAGE_GES_DISC, VARIABLE_TC, COLUMN_CLUSTER, PRODUCT_2A_GMI, TC_COLUMNS, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, \
     PMW_ANALYSIS_DIR
-from pmw_analysis.processing.model import ClusterModel
+from pmw_analysis.analysis.clustering import ClusterModel
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.pyplot import get_surface_type_cmap
 

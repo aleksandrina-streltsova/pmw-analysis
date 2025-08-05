@@ -13,7 +13,7 @@ import seaborn as sns
 
 from pmw_analysis.constants import BUCKET_DIR, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, TC_COLUMNS, \
     PMW_ANALYSIS_DIR
-from pmw_analysis.processing.model import ClusterModel
+from pmw_analysis.analysis.clustering import ClusterModel
 from pmw_analysis.quantization.dataframe_polars import _replace_special_missing_values_with_null
 from pmw_analysis.quantization.script import get_transformation_function
 
