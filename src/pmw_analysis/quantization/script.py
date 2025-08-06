@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, COLUMN_COUNT, \
     COLUMN_TIME, DEBUG_FLAG, COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID, COLUMN_LON_BIN, COLUMN_LAT_BIN, \
-    COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE
+    COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_K
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features
 from pmw_analysis.utils.logging import disable_logging, timing
@@ -197,7 +197,7 @@ def _add_diff_unc(tc_min: str, tc_sub: str, unc_dict: Dict[str, float]):
     unc_dict[get_diff_col(tc_min, tc_sub)] = (unc_dict[tc_min] + unc_dict[tc_sub]) / 2
 
 
-def pd_transform(obj):
+def pd_transform(obj, drop: bool = True):
     """
     Replace vertical polarizations with polarization differences when possible.
     """
@@ -205,6 +205,8 @@ def pd_transform(obj):
         lf = obj
         lf = lf.with_columns([_get_pd_expr(freq) for freq in [19, 37, 89, 165]])
         lf = lf.with_columns(_get_diff_expr("Tc_183V7", "Tc_183V3"))
+        if drop:
+            lf = lf.drop(TC_COLUMNS)
         return lf
 
     if isinstance(obj, Dict):
@@ -220,7 +222,7 @@ def pd_transform(obj):
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
-def ratio_transform(obj):
+def ratio_transform(obj, drop: bool = True):
     """
     Divide values by the values of 19H.
     """
@@ -229,6 +231,8 @@ def ratio_transform(obj):
     if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
         lf = obj
         lf = lf.with_columns([_get_ratio_expr(tc_col, tc_denom) for tc_col in TC_COLUMNS if tc_col != tc_denom])
+        if drop:
+            lf = lf.drop(TC_COLUMNS)
         return lf
 
     if isinstance(obj, Dict):
@@ -245,11 +249,12 @@ def ratio_transform(obj):
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
-def v1_transform(obj):
+def v1_transform(obj, drop: bool = True):
     if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
         lf = obj
         lf = lf.with_columns([_get_ratio_expr("Tc_37H", "Tc_19H"), _get_pd_expr(89)])
-        lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_23V", "Tc_165V", "Tc_183V7"]])
+        if drop:
+            lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_23V", "Tc_165V", "Tc_183V7"]])
         return lf
 
     if isinstance(obj, Dict):
@@ -264,11 +269,12 @@ def v1_transform(obj):
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
-def v2_transform(obj):
+def v2_transform(obj, drop: bool = True):
     if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
         lf = obj
         lf = lf.with_columns([_get_ratio_expr("Tc_37H", "Tc_19H"), _get_pd_expr(89)])
-        lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_19V", "Tc_89V"]])
+        if drop:
+            lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_19V", "Tc_89V"]])
         return lf
 
     if isinstance(obj, Dict):
@@ -283,11 +289,12 @@ def v2_transform(obj):
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
-def v3_transform(obj):
+def v3_transform(obj, drop: bool = True):
     if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
         lf = obj
         lf = lf.with_columns([_get_pd_expr(165), _get_diff_expr("Tc_183V3", "Tc_183V7")])
-        lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_23V", "Tc_165V", "Tc_183V3"]])
+        if drop:
+            lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_23V", "Tc_165V", "Tc_183V3"]])
         return lf
 
     if isinstance(obj, Dict):
@@ -302,13 +309,14 @@ def v3_transform(obj):
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
-def v4_transform(obj):
+def v4_transform(obj, drop: bool = True):
     if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
         lf = obj
         lf = lf.with_columns([_get_pd_expr(19), _get_pd_expr(37),
                               _get_diff_expr("Tc_37V", "Tc_19V"),
                               _get_diff_expr("Tc_89V", "Tc_37V")])
-        lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_37V"]])
+        if drop:
+            lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_37V"]])
         return lf
 
     if isinstance(obj, Dict):
@@ -447,19 +455,23 @@ def get_range_dict() -> Dict[str, float]:
     return range_dict
 
 
-def get_newest_k(path: pathlib.Path, k: int):
-    # TODO: extract file name to constant
-    df_id = pl.read_parquet(path / "final.parquet")
-    df_id_k =  take_k_sorted(df_id, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
-    df_id_k.write_parquet(path / "final_k.parquet")
+def get_newest_k(path: pathlib.Path, transform: Callable, k: int):
+    df_id = pl.read_parquet(path / FILE_DF_FINAL)
+
+    df_id_k = take_k_sorted(df_id, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
+    df_k = _get_bucket_data_for_ids(df_id_k, transform)
+
+    df_k.write_parquet(path / FILE_DF_FINAL_K)
 
 
-def _get_bucket_data_for_ids(df_id_k: pl.DataFrame) -> pl.DataFrame:
+def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.DataFrame:
     id_columns = [COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID]
+    quant_columns = transform(TC_COLUMNS)
 
     p: LonLatPartitioning = get_bucket_spatial_partitioning(BUCKET_DIR)
 
-    df_id_k = df_id_k.explode(p.levels + id_columns)
+    df_id_k = df_id_k.explode([COLUMN_LON, COLUMN_LAT] + id_columns)
+    df_id_k = df_id_k.rename({col: f"{col}{COLUMN_SUFFIX_QUANT}" for col in quant_columns})
 
     df_id_k = p.add_labels(df_id_k, x=COLUMN_LON, y=COLUMN_LAT)
     df_id_k = p.add_centroids(df_id_k, x=COLUMN_LON, y=COLUMN_LAT, x_coord=COLUMN_LON_BIN, y_coord=COLUMN_LAT_BIN)
@@ -482,10 +494,11 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame) -> pl.DataFrame:
             df_bin = gpm.bucket.read(bucket_dir=BUCKET_DIR,
                                      extent=extent,
                                      backend="polars")
-            df_k_bin = df_k_bin.join(df_bin, on=id_columns, how="inner", suffix=COLUMN_SUFFIX_QUANT)
+            df_k_bin = df_k_bin.join(df_bin, on=id_columns, how="inner")
             dfs_k_bin.append(df_k_bin)
 
     df_k = pl.concat(dfs_k_bin)
+    df_k = transform(df_k, drop=False)
     return df_k
 
 
@@ -556,8 +569,7 @@ def main():
     elif args.step == "merge":
         merge(path, transform, args.agg_off_cols)
     else:
-        get_newest_k(path, K)
-
+        get_newest_k(path, transform, K)
 
 
 if __name__ == '__main__':

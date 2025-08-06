@@ -102,3 +102,6 @@ ST_GROUP_MISC = ['Sea-Ice',
 EXTENT_GREENLAND = [-73, -11, 59, 83]
 
 AGG_OFF_LIMIT = 100
+
+FILE_DF_FINAL = "final.parquet"
+FILE_DF_FINAL_K = "final_k.parquet"
