@@ -5,7 +5,7 @@ import logging
 import pathlib
 import pickle
 from collections import defaultdict
-from typing import Dict, Callable, List, Sequence
+from typing import Dict, Callable, List, Sequence, Tuple
 
 import configargparse
 import gpm
@@ -31,16 +31,16 @@ Y_STEP = 4
 K = 100000
 
 
-def _calculate_bounds():
+def _calculate_bounds(x_step: int = X_STEP, y_step: int = Y_STEP) -> Tuple[List[float], List[float]]:
     p: LonLatPartitioning = get_bucket_spatial_partitioning(BUCKET_DIR)
     x_bounds = p.x_bounds.tolist()
     y_bounds = list(filter(lambda b: abs(b) <= 70, p.y_bounds))
 
-    x_include_final = len(x_bounds) % X_STEP == 0
-    y_include_final = len(y_bounds) % Y_STEP == 0
+    x_include_final = (len(x_bounds) - 1) % x_step != 0
+    y_include_final = (len(y_bounds) - 1) % y_step != 0
 
-    x_bounds = x_bounds[::X_STEP] + ([x_bounds[-1]] if x_include_final else [])
-    y_bounds = y_bounds[::Y_STEP] + ([y_bounds[-1]] if y_include_final else [])
+    x_bounds = x_bounds[::x_step] + ([x_bounds[-1]] if x_include_final else [])
+    y_bounds = y_bounds[::y_step] + ([y_bounds[-1]] if y_include_final else [])
 
     return x_bounds, y_bounds
 
