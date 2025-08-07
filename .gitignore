@@ -169,6 +169,5 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
-/images
 /hists
-/images_before_04_08_25
+/images*
