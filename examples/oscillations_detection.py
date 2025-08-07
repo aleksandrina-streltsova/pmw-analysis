@@ -16,7 +16,7 @@ from pmw_analysis.constants import (
     COLUMN_TIME_FRACTION,
     COLUMN_OCCURRENCE_TIME,
     ATTR_NAME,
-    SAVEFIG_FLAG,
+    FLAG_SAVEFIG,
     DIR_IMAGES,
     DIR_BUCKET, TC_COLUMNS, AGG_OFF_COLUMNS, COLUMN_LAT, COLUMN_LON, DIR_PMW_ANALYSIS,
 )
@@ -148,7 +148,7 @@ def main():
                 plt.ylabel("[K]")
                 plt.title(f"{feature_col} ({name})")
         plt.tight_layout()
-        if SAVEFIG_FLAG:
+        if FLAG_SAVEFIG:
             if aggregate_flag:
                 plt.savefig(images_dir / f"{color_col}_{int(agg_n_days)}.png")
             else:
@@ -160,7 +160,7 @@ def main():
         name = ts.attrs[ATTR_NAME]
         corr_mtx = ts[feature_cols].corr().abs()
         sns.heatmap(corr_mtx, annot=True)
-        if SAVEFIG_FLAG:
+        if FLAG_SAVEFIG:
             plt.savefig(pathlib.Path(DIR_IMAGES) / f"{name}_corr.png")
         plt.show()
 

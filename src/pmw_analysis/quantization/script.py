@@ -16,7 +16,7 @@ from gpm.bucket.io import get_bucket_spatial_partitioning
 from tqdm import tqdm
 
 from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, COLUMN_COUNT, \
-    COLUMN_TIME, DEBUG_FLAG, COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID, COLUMN_LON_BIN, COLUMN_LAT_BIN, \
+    COLUMN_TIME, FLAG_DEBUG, COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID, COLUMN_LON_BIN, COLUMN_LAT_BIN, \
     COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_K, \
     ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
     DIR_NO_SUN_GLINT, ArgSurfaceType
@@ -102,7 +102,7 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, fac
             with timing("Writing"):
                 lf_result.sink_parquet(path_single, engine="streaming")
 
-            if DEBUG_FLAG:
+            if FLAG_DEBUG:
                 logging.info(lf.select(pl.len()).collect(engine="streaming").item() /
                              lf_result.select(pl.len()).collect(engine="streaming").item())
 

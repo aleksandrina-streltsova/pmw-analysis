@@ -33,8 +33,8 @@ DIM_ALONG_TRACK = "along_track"
 DIM_CROSS_TRACK = "cross_track"
 DIM_PMW = "pmw_frequency"
 
-SAVEFIG_FLAG = True
-DEBUG_FLAG = False
+FLAG_SAVEFIG = True
+FLAG_DEBUG = False
 
 DIR_IMAGES = "images"
 DIR_BUCKET = "/ltenas8/data/GPM_Buckets/GMI"

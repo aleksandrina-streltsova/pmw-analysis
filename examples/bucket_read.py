@@ -11,7 +11,7 @@ import pyproj
 from gpm.bucket import LonLatPartitioning
 from gpm.dataset.crs import set_dataset_crs
 
-from pmw_analysis.constants import DIR_IMAGES, SAVEFIG_FLAG, DIR_BUCKET, COLUMN_TIME, COLUMN_LON, COLUMN_LAT
+from pmw_analysis.constants import DIR_IMAGES, FLAG_SAVEFIG, DIR_BUCKET, COLUMN_TIME, COLUMN_LON, COLUMN_LAT
 
 # Define extent and bucket directory
 extent = [28, 32, 58, 62]
@@ -143,7 +143,7 @@ p = ds["max_Tc_10H"].gpm.plot_map(x="longitude", y="latitude", cmap="Spectral_r"
 p.axes.set_title("Maximum GMI Tb at 10 GHz")
 p.axes.scatter(point_city[0], point_city[1], marker="x", c="black")
 p.axes.scatter(point_outskirts[0], point_outskirts[1], marker="x", c="blue")
-if SAVEFIG_FLAG:
+if FLAG_SAVEFIG:
     plt.savefig(pathlib.Path(DIR_IMAGES) / "point_locations.png")
 plt.show()
 

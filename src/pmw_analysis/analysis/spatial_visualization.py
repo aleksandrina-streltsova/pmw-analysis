@@ -12,7 +12,7 @@ from gpm.dataset.crs import set_dataset_crs
 from gpm.visualization.plot import _sanitize_cartopy_plot_kwargs
 from pycolorbar import get_plot_kwargs
 
-from pmw_analysis.constants import TC_COLUMNS, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, SAVEFIG_FLAG, COLUMN_LON, \
+from pmw_analysis.constants import TC_COLUMNS, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, FLAG_SAVEFIG, COLUMN_LON, \
     COLUMN_LAT, COLUMN_LON_BIN, COLUMN_LAT_BIN, ArgTransform
 from pmw_analysis.quantization.script import get_transformation_function
 
@@ -99,7 +99,7 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
         p.axes.set_title(f"{var}\n{texts[var]}{title_text_suffix}")
         p.set_extent(extent)
 
-        if SAVEFIG_FLAG:
+        if FLAG_SAVEFIG:
             plt.savefig(images_dir / f"{var}{file_name_suffix}.png")
         plt.show()
 

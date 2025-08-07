@@ -13,7 +13,7 @@ from scipy.signal import lombscargle
 from pmw_analysis.constants import (
     COLUMN_TIME_FRACTION, COLUMN_SUFFIX_DOMINANT_CYCLE,
     ATTR_PERIODOGRAM_DICT, ATTR_NAME,
-    DIR_IMAGES, SAVEFIG_FLAG
+    DIR_IMAGES, FLAG_SAVEFIG
 )
 from pmw_analysis.utils.pyplot import subplots
 
@@ -102,7 +102,7 @@ def plot_cycle(time_series: Union[pd.DataFrame, List[pd.DataFrame]], feature_col
             ax.set_ylabel("[K]")
             ax.set_title(f"{feature_col} with cycle removed ({name})")
     plt.tight_layout()
-    if SAVEFIG_FLAG:
+    if FLAG_SAVEFIG:
         plt.savefig(pathlib.Path(DIR_IMAGES) / f"cycle_{feature_cols[-1]}_{suffix}.png")
     plt.show()
 
@@ -135,6 +135,6 @@ def plot_periodogram(time_series: Union[pd.DataFrame, List[pd.DataFrame]], featu
                 f"{feature_col} ({ts.attrs[ATTR_NAME]}), frequency = {dominant_freq:.3f}, period = {period:.3f}")
             ax.grid()
     plt.tight_layout()
-    if SAVEFIG_FLAG:
+    if FLAG_SAVEFIG:
         plt.savefig(pathlib.Path(DIR_IMAGES) / f"periodogram_{feature_cols[-1]}_{suffix}.png")
     plt.show()

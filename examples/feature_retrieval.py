@@ -10,7 +10,7 @@ from gpm.utils.pmw import get_pmw_channel
 from matplotlib import pyplot as plt
 
 from pmw_analysis.constants import (
-    DIM_ALONG_TRACK, COLUMN_TIME, SAVEFIG_FLAG, DIR_IMAGES, PRODUCT_1C_GMI_R,
+    DIM_ALONG_TRACK, COLUMN_TIME, FLAG_SAVEFIG, DIR_IMAGES, PRODUCT_1C_GMI_R,
     PRODUCT_TYPE_RS, VERSION, STORAGE_GES_DISC, VARIABLE_TC, DIM_PMW, TC_COLUMNS,
 )
 from pmw_analysis.quantization.dataframe_pandas import segment_features_into_bins
@@ -121,7 +121,7 @@ def main():
         for axis in fc.axs.flatten():
             axis.scatter(point[0], point[1], marker="x", c="black")
 
-        if SAVEFIG_FLAG:
+        if FLAG_SAVEFIG:
             plt.savefig(images_dir / f"{var}_{suffix}.png")
         plt.show()
 

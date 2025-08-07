@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME, COLUMN_LON, COLUMN_LAT, \
     COLUMN_OCCURRENCE, COLUMN_OCCURRENCE_TIME, COLUMN_OCCURRENCE_LON, COLUMN_OCCURRENCE_LAT, \
-    DEBUG_FLAG, AGG_OFF_LIMIT
+    FLAG_DEBUG, AGG_OFF_LIMIT
 
 
 #### COLUMNS ####
@@ -314,7 +314,7 @@ def _aggregate(lf: pl.DataFrame | pl.LazyFrame, info: DataFrameQuantizationInfo)
         )
     )
 
-    if DEBUG_FLAG:
+    if FLAG_DEBUG:
         assert (lf_result.select(pl.col(COLUMN_COUNT).sum()).collect(engine="streaming").item() ==
                 lf.select(pl.len()).collect(engine="streaming").item())
     return lf_result
@@ -386,7 +386,7 @@ def quantize_features(lf: pl.DataFrame | pl.LazyFrame, info: DataFrameQuantizati
 
     # logging.info("[quantize] query explanation:\n%s", lf.explain(streaming=True))
 
-    if DEBUG_FLAG:
+    if FLAG_DEBUG:
         row_count_before = lf.select(pl.len()).collect(engine="streaming").item()
         row_count_after = lf_result.select(pl.len()).collect(engine="streaming").item()
         assert row_count_before == lf_result.select(pl.col(COLUMN_COUNT).sum()).collect(engine="streaming").item()
@@ -506,7 +506,7 @@ def merge_quantized_features(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
 
     # logging.info("query explanation:\n%s", lf_result.explain(streaming=True))
 
-    if DEBUG_FLAG:
+    if FLAG_DEBUG:
         row_count_before = lf.select(pl.len()).collect(engine="streaming").item()
         row_count_after = lf_result.select(pl.len()).collect(engine="streaming").item()
         logging.info("Quantized features into %d/%d", row_count_after, row_count_before)
