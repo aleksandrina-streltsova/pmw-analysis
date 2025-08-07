@@ -1,5 +1,5 @@
 """
-This module contains functions for plotting clusterization results on map.
+This module contains functions for plotting clustering results on map.
 """
 import pathlib
 from typing import List, Callable
@@ -67,7 +67,7 @@ def _get_da_example() -> List[xr.DataArray]:
 
 def plot_map(model_path: pathlib.Path, transform: Callable):
     """
-    Plot clusterization results and reference classes on map.
+    Plot clustering results and reference classes on map.
     """
     da, da_ref = _get_da_example()
     df = _xr_to_pl(da)
@@ -148,16 +148,16 @@ def plot_map(model_path: pathlib.Path, transform: Callable):
 
 def main():
     parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
-                                           description="Plot clusterization results on map")
+                                           description="Plot clustering results on map")
 
     parser.add_argument("--transform", default="default",
                         choices=["default", "pd", "ratio", "partial", "v1", "v2"],
                         help="Type of transformation performed on data")
     parser.add_argument("--reduction", choices=["pca", "umap"])
-    parser.add_argument("--clusterization", choices=["kmeans", "hdbscan"])
+    parser.add_argument("--clustering", choices=["kmeans", "hdbscan"])
 
     args = parser.parse_args()
-    model_path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / f"{args.reduction}_{args.clusterization}.pkl"
+    model_path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / f"{args.reduction}_{args.clustering}.pkl"
     transform = get_transformation_function(args.transform)
 
     plot_map(model_path, transform)

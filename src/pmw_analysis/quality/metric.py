@@ -130,8 +130,8 @@ def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str,
 
 def main(model_path, transform):
     # reduction = "pca"
-    # clusterization = "kmeans"
-    # model_path = pathlib.Path(PMW_ANALYSIS_DIR) / "v2" / f"{reduction}_{clusterization}.pkl"
+    # clustering = "kmeans"
+    # model_path = pathlib.Path(PMW_ANALYSIS_DIR) / "v2" / f"{reduction}_{clustering}.pkl"
     # transform = get_transformation_function("v2")
 
     extents = [
@@ -170,10 +170,10 @@ if __name__ == '__main__':
                         choices=["default", "pd", "ratio", "partial", "v1", "v2"],
                         help="Type of transformation performed on data")
     parser.add_argument("--reduction", choices=["pca", "umap"])
-    parser.add_argument("--clusterization", choices=["kmeans", "hdbscan"])
+    parser.add_argument("--clustering", choices=["kmeans", "hdbscan"])
 
     args = parser.parse_args()
     main(
-        model_path=pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / f"{args.reduction}_{args.clusterization}.pkl",
+        model_path=pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / f"{args.reduction}_{args.clustering}.pkl",
         transform=get_transformation_function(args.transform)
     )

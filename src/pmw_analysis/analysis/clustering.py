@@ -1,5 +1,5 @@
 """
-Script for running clusterization on quantized transformed data.
+Script for clustering quantized transformed data.
 """
 import logging
 import pathlib
@@ -49,7 +49,7 @@ class ClusterModel:
 
     def predict(self, features):
         """
-        Perform clusterization pipeline on the input data.
+        Perform clustering pipeline on the input data.
         """
         features_scaled = self.scaler.transform(features)
         features_reduced = self.reducer.transform(features_scaled)
@@ -90,7 +90,7 @@ class CLusterIndexModel:
 
     def predict(self, features_reduced):
         """
-        Perform clusterization on the input data using nearest neighbor search.
+        Perform clustering on the input data using nearest neighbor search.
         """
         indices = self.index_train.search(features_reduced, k=1)[1].flatten()
         labels = self.labels_train[indices]
@@ -162,7 +162,7 @@ def _umap_fit_transform(features: pl.DataFrame,
     return features_reduced, reducer
 
 
-# TODO: remove other reduction/clusterization scripts
+# TODO: remove other reduction/clustering scripts
 def _pca_fit_transform(data, weight, n_components=2):
     """
     Perform dimensionality reduction on the input data using PCA or Weighted PCA.
@@ -176,9 +176,9 @@ def _pca_fit_transform(data, weight, n_components=2):
     return fs_reduced, reducer
 
 
-def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, transform: Callable):
+def clusterize(df_path: pathlib.Path, reduction: str, clustering: str, transform: Callable):
     """
-    Perform clusterization on the specified dataset.
+    Perform clustering on the specified dataset.
     """
     # args_transform = "v2"
     #
@@ -200,9 +200,9 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
     df = df.with_columns((pl.col(COLUMN_COUNT).cum_sum() / pl.col(COLUMN_COUNT).sum()).alias(column_cum_prob))
 
     # reduction = "umap"
-    # clusterization = "kmeans"
+    # clustering = "kmeans"
 
-    if reduction == "umap" or clusterization == "hdbscan":
+    if reduction == "umap" or clustering == "hdbscan":
         df_train = df.filter(pl.col(column_cum_prob) > 0.05)
         logging.info("%d/%d rows after filtering", len(df_train), len(df))
     else:
@@ -230,11 +230,11 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
             raise ValueError(f"{reduction} is not supported")
 
     with timing("Clustering (train)"):
-        if clusterization == CLUSTER_KMEANS:
+        if clustering == CLUSTER_KMEANS:
             n_clusters = 4
             clusterer = KMeans(n_clusters=n_clusters)
             clusterer.fit(features_train_reduced, sample_weight=weight_train)
-        elif clusterization == CLUSTER_HDBSCAN:
+        elif clustering == CLUSTER_HDBSCAN:
             clusterer_base = hdbscan.HDBSCAN(min_cluster_size=100, prediction_data=True)
             clusterer_base.fit(features_train_reduced)
 
@@ -243,10 +243,10 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
             clusterer = CLusterIndexModel(features_train_reduced, labels_train)
             n_clusters = labels_train.max() + 1
         else:
-            raise ValueError(f"{clusterization} is not supported")
+            raise ValueError(f"{clustering} is not supported")
 
     final_model = ClusterModel(scaler, reducer, clusterer)
-    final_model.save(df_path.parent / f"{reduction}_{clusterization}.pkl")
+    final_model.save(df_path.parent / f"{reduction}_{clustering}.pkl")
 
     with timing("Scaling features"):
         features_scaled = scaler.transform(df[feature_columns])
@@ -262,7 +262,7 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
     dir_path.mkdir(parents=True, exist_ok=True)
 
     # density plot
-    file_path = dir_path / f'{reduction}_{clusterization}_count.png'
+    file_path = dir_path / f'{reduction}_{clustering}_count.png'
     hist_data_count = [
         HistogramData(data=features_reduced, weight=df[COLUMN_COUNT], title="All surfaces", alpha=1.0,
                       cmap="rocket_r", color=None, x_label="Component 1", y_label="Component 2")
@@ -270,8 +270,8 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
     plot_histograms2d(hist_data_count, path=file_path, title=reduction.upper(),
                       bins=N_BINS, use_log_norm=use_log_norm)
 
-    # clusterization results
-    file_path = dir_path / f'{reduction}_{clusterization}.png'
+    # clustering results
+    file_path = dir_path / f'{reduction}_{clustering}.png'
     hist_datas = [
         HistogramData(data=features_reduced[labels == cluster],
                       weight=df[COLUMN_COUNT].filter(labels == cluster),
@@ -279,8 +279,8 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
                       alpha=0.8, cmap=None, color=None, x_label="Component 1", y_label="Component 2")
         for cluster in range(n_clusters)
     ]
-    clusterization_title = "KMeans++" if clusterization == "kmeans" else "HDBSCAN"
-    plot_histograms2d(hist_datas, path=file_path, title=clusterization_title, bins=N_BINS,
+    clustering_title = "KMeans++" if clustering == "kmeans" else "HDBSCAN"
+    plot_histograms2d(hist_datas, path=file_path, title=clustering_title, bins=N_BINS,
                       use_log_norm=use_log_norm, use_shared_norm=False)
 
     # reference data
@@ -288,7 +288,7 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
         pl.Series("x", features_reduced[:, 0]),
         pl.Series("y", features_reduced[:, 1]),
     )
-    file_path = dir_path / f'{reduction}_{clusterization}_ref.png'
+    file_path = dir_path / f'{reduction}_{clustering}_ref.png'
     hist_datas_ref = []
     groups = [
         ("Ocean (Group)", ST_GROUP_OCEAN, "navy"),
@@ -312,18 +312,18 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
 def main():
     logging.basicConfig(level=logging.INFO)
     parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
-                                           description="Run clusterization and visualize results using DR")
+                                           description="Run clustering and visualize results using DR")
 
     parser.add_argument("--transform", default="default",
                         choices=["default", "pd", "ratio", "partial", "v1", "v2", "v3"],
                         help="Type of transformation performed on data")
     parser.add_argument("--reduction", choices=["pca", "umap"])
-    parser.add_argument("--clusterization", choices=["kmeans", "hdbscan"])
+    parser.add_argument("--clustering", choices=["kmeans", "hdbscan"])
 
     args = parser.parse_args()
     transform = get_transformation_function(args.transform)
     path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / "final.parquet"
-    clusterize(path, args.reduction, args.clusterization, transform)
+    clusterize(path, args.reduction, args.clustering, transform)
 
 
 if __name__ == "__main__":
