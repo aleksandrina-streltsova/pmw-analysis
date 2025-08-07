@@ -15,7 +15,7 @@ import xarray as xr
 
 from pmw_analysis.constants import PRODUCT_1C_GMI_R, PRODUCT_TYPE_RS, VERSION, \
     STORAGE_GES_DISC, VARIABLE_TC, COLUMN_CLUSTER, PRODUCT_2A_GMI, TC_COLUMNS, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, \
-    PMW_ANALYSIS_DIR, ArgTransform, ArgDimensionalityReduction, ArgClustering
+    DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering
 from pmw_analysis.analysis.clustering import ClusterModel
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.script import get_transformation_function
@@ -158,7 +158,7 @@ def main():
     parser.add_argument("--clustering", type=ArgClustering, action=EnumAction)
 
     args = parser.parse_args()
-    model_path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform.value / f"{args.reduction}_{args.clustering}.pkl"
+    model_path = pathlib.Path(DIR_PMW_ANALYSIS) / args.transform.value / f"{args.reduction}_{args.clustering}.pkl"
     transform = get_transformation_function(args.transform)
 
     plot_map(model_path, transform)

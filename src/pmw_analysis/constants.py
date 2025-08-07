@@ -36,9 +36,9 @@ DIM_PMW = "pmw_frequency"
 SAVEFIG_FLAG = True
 DEBUG_FLAG = False
 
-SAVEFIG_DIR = "images"
-BUCKET_DIR = "/ltenas8/data/GPM_Buckets/GMI"
-PMW_ANALYSIS_DIR = "/ltenas8/data/PMW_Analysis"
+DIR_IMAGES = "images"
+DIR_BUCKET = "/ltenas8/data/GPM_Buckets/GMI"
+DIR_PMW_ANALYSIS = "/ltenas8/data/PMW_Analysis"
 
 PRODUCT_1C_GMI_R = "1C-GMI-R"
 PRODUCT_2A_GMI = "2A-GMI"

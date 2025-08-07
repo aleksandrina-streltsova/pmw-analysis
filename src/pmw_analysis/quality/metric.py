@@ -11,8 +11,8 @@ import numpy as np
 import polars as pl
 import seaborn as sns
 
-from pmw_analysis.constants import BUCKET_DIR, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, TC_COLUMNS, \
-    PMW_ANALYSIS_DIR, ArgTransform, ArgDimensionalityReduction, ArgClustering
+from pmw_analysis.constants import DIR_BUCKET, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, TC_COLUMNS, \
+    DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering
 from pmw_analysis.analysis.clustering import ClusterModel
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.dataframe_polars import _replace_special_missing_values_with_null
@@ -144,7 +144,7 @@ def main(model_path, transform):
     dfs_partial = []
 
     for extent in extents:
-        df_partial: pl.DataFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR,
+        df_partial: pl.DataFrame = gpm.bucket.read(bucket_dir=DIR_BUCKET,
                                                    columns=None,
                                                    extent=extent)
         dfs_partial.append(df_partial)
@@ -175,6 +175,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(
-        model_path=pathlib.Path(PMW_ANALYSIS_DIR) / args.transform.value / f"{args.reduction}_{args.clustering}.pkl",
+        model_path=pathlib.Path(DIR_PMW_ANALYSIS) / args.transform.value / f"{args.reduction}_{args.clustering}.pkl",
         transform=get_transformation_function(args.transform)
     )

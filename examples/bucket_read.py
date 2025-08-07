@@ -11,7 +11,7 @@ import pyproj
 from gpm.bucket import LonLatPartitioning
 from gpm.dataset.crs import set_dataset_crs
 
-from pmw_analysis.constants import SAVEFIG_DIR, SAVEFIG_FLAG, BUCKET_DIR, COLUMN_TIME, COLUMN_LON, COLUMN_LAT
+from pmw_analysis.constants import DIR_IMAGES, SAVEFIG_FLAG, DIR_BUCKET, COLUMN_TIME, COLUMN_LON, COLUMN_LAT
 
 # Define extent and bucket directory
 extent = [28, 32, 58, 62]
@@ -48,7 +48,7 @@ columns = [
 
 # -----------------------------------------------------------------------------.
 #### Read Parquet Dataset with polars
-lf_pl: pl.LazyFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR,
+lf_pl: pl.LazyFrame = gpm.bucket.read(bucket_dir=DIR_BUCKET,
                                       columns=columns,
                                       use_pyarrow=False,  # use rust parquet reader
                                       extent=extent,
@@ -144,7 +144,7 @@ p.axes.set_title("Maximum GMI Tb at 10 GHz")
 p.axes.scatter(point_city[0], point_city[1], marker="x", c="black")
 p.axes.scatter(point_outskirts[0], point_outskirts[1], marker="x", c="blue")
 if SAVEFIG_FLAG:
-    plt.savefig(pathlib.Path(SAVEFIG_DIR) / "point_locations.png")
+    plt.savefig(pathlib.Path(DIR_IMAGES) / "point_locations.png")
 plt.show()
 
 # Plot RFI pattern (X band)

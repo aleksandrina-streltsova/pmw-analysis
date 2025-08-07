@@ -10,7 +10,7 @@ from gpm.utils.pmw import get_pmw_channel
 from matplotlib import pyplot as plt
 
 from pmw_analysis.constants import (
-    DIM_ALONG_TRACK, COLUMN_TIME, SAVEFIG_FLAG, SAVEFIG_DIR, PRODUCT_1C_GMI_R,
+    DIM_ALONG_TRACK, COLUMN_TIME, SAVEFIG_FLAG, DIR_IMAGES, PRODUCT_1C_GMI_R,
     PRODUCT_TYPE_RS, VERSION, STORAGE_GES_DISC, VARIABLE_TC, DIM_PMW, TC_COLUMNS,
 )
 from pmw_analysis.quantization.dataframe_pandas import segment_features_into_bins
@@ -25,7 +25,7 @@ PRODUCT_TYPE = PRODUCT_TYPE_RS
 
 
 def main():
-    images_dir = pathlib.Path(SAVEFIG_DIR) / "plot_map"
+    images_dir = pathlib.Path(DIR_IMAGES) / "plot_map"
     images_dir.mkdir(parents=True, exist_ok=True)
 
     # Get available products

@@ -20,7 +20,7 @@ from tqdm import tqdm
 from umap import UMAP
 from umap.umap_ import nearest_neighbors
 
-from pmw_analysis.constants import COLUMN_COUNT, PMW_ANALYSIS_DIR, ST_COLUMNS, ST_GROUP_VEGETATION, \
+from pmw_analysis.constants import COLUMN_COUNT, DIR_PMW_ANALYSIS, ST_COLUMNS, ST_GROUP_VEGETATION, \
     ST_GROUP_OCEAN, ST_GROUP_SNOW, ArgTransform, ArgDimensionalityReduction, ArgClustering
 from pmw_analysis.constants import VARIABLE_SURFACE_TYPE_INDEX, COLUMN_OCCURRENCE, TC_COLUMNS
 from pmw_analysis.copypaste.utils.cli import EnumAction
@@ -322,7 +322,7 @@ def main():
 
     args = parser.parse_args()
     transform = get_transformation_function(args.transform)
-    path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform.value / "final.parquet"
+    path = pathlib.Path(DIR_PMW_ANALYSIS) / args.transform.value / "final.parquet"
     clusterize(path, args.reduction, args.clustering, transform)
 
 

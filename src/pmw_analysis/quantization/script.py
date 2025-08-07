@@ -15,7 +15,7 @@ from gpm.bucket import LonLatPartitioning
 from gpm.bucket.io import get_bucket_spatial_partitioning
 from tqdm import tqdm
 
-from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, COLUMN_COUNT, \
+from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, COLUMN_COUNT, \
     COLUMN_TIME, DEBUG_FLAG, COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID, COLUMN_LON_BIN, COLUMN_LAT_BIN, \
     COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_K, \
     ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG
@@ -34,7 +34,7 @@ K = 100000
 
 
 def _calculate_bounds(x_step: int = X_STEP, y_step: int = Y_STEP) -> Tuple[List[float], List[float]]:
-    p: LonLatPartitioning = get_bucket_spatial_partitioning(BUCKET_DIR)
+    p: LonLatPartitioning = get_bucket_spatial_partitioning(DIR_BUCKET)
     x_bounds = p.x_bounds.tolist()
     y_bounds = list(filter(lambda b: abs(b) <= 70, p.y_bounds))
 
@@ -84,7 +84,7 @@ def quantize(path: pathlib.Path, transform: Callable, factor: float,
                     case ArgQuantizationL2L3Columns.ALL:
                         columns = None
 
-                lf: pl.DataFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR, columns=columns, extent=extent,
+                lf: pl.DataFrame = gpm.bucket.read(bucket_dir=DIR_BUCKET, columns=columns, extent=extent,
                                                    backend="polars_lazy")
                 if year is not None:
                     lf = lf.filter(pl.col(COLUMN_TIME).dt.year() == year)
@@ -360,7 +360,7 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     logging.info("Reading data")
     np.random.seed(566)
 
-    p: LonLatPartitioning = get_bucket_spatial_partitioning(BUCKET_DIR)
+    p: LonLatPartitioning = get_bucket_spatial_partitioning(DIR_BUCKET)
     x_bounds = p.x_bounds
     y_bounds = list(filter(lambda b: abs(b) <= 70, p.y_bounds))
 
@@ -369,7 +369,7 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     for idx_x, idx_y in tqdm(zip(np.random.choice(np.arange(len(x_bounds) - 1), k),
                                  np.random.choice(np.arange(len(y_bounds) - 1), k)), total=k):
         extent = [x_bounds[idx_x], x_bounds[idx_x + 1], y_bounds[idx_y], y_bounds[idx_y + 1]]
-        lf: pl.LazyFrame = gpm.bucket.read(BUCKET_DIR, extent,
+        lf: pl.LazyFrame = gpm.bucket.read(DIR_BUCKET, extent,
                                            columns=TC_COLUMNS + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME],
                                            backend="polars_lazy")
         lfs.append(transform(lf))
@@ -417,7 +417,7 @@ def _calculate_ranges_for_bucket():
     n_obs_in_bucket = 2e10
     n_top_bottom_obs = int(1e-6 * n_obs_in_bucket)
 
-    p: LonLatPartitioning = get_bucket_spatial_partitioning(BUCKET_DIR)
+    p: LonLatPartitioning = get_bucket_spatial_partitioning(DIR_BUCKET)
     y_bounds = list(filter(lambda b: abs(b) <= 70, p.y_bounds))
 
     tc_denom = "Tc_19H"
@@ -434,7 +434,7 @@ def _calculate_ranges_for_bucket():
 
     for x_min, x_max in tqdm(zip(p.x_bounds[:-1], p.x_bounds[1:]), total=len(p.x_centroids)):
         for y_min, y_max in zip(y_bounds[:-1], y_bounds[1:]):
-            df = gpm.bucket.read(BUCKET_DIR, extent=[x_min, x_max, y_min, y_max], backend="polars",
+            df = gpm.bucket.read(DIR_BUCKET, extent=[x_min, x_max, y_min, y_max], backend="polars",
                                  columns=TC_COLUMNS + [COLUMN_LON, COLUMN_LAT])
             df = df.drop([COLUMN_LON, COLUMN_LAT])
             df = df.with_columns(expressions)
@@ -457,7 +457,7 @@ def get_range_dict() -> Dict[str, float]:
     """
     Fetch or calculate a dictionary of ranges and return it.
     """
-    range_dict_path = pathlib.Path(PMW_ANALYSIS_DIR) / "range_dict.pkl"
+    range_dict_path = pathlib.Path(DIR_PMW_ANALYSIS) / "range_dict.pkl"
     if range_dict_path.exists():
         range_dict = pickle.load(open(range_dict_path, "rb"))
         return range_dict
@@ -480,7 +480,7 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.D
     id_columns = [COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID]
     quant_columns = transform(TC_COLUMNS)
 
-    p: LonLatPartitioning = get_bucket_spatial_partitioning(BUCKET_DIR)
+    p: LonLatPartitioning = get_bucket_spatial_partitioning(DIR_BUCKET)
 
     df_id_k = df_id_k.explode([COLUMN_LON, COLUMN_LAT] + id_columns)
     df_id_k = df_id_k.rename({col: f"{col}{COLUMN_SUFFIX_QUANT}" for col in quant_columns})
@@ -503,7 +503,7 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.D
                 continue
 
             extent = [x_min, x_max, y_min, y_max]
-            df_bin = gpm.bucket.read(bucket_dir=BUCKET_DIR,
+            df_bin = gpm.bucket.read(bucket_dir=DIR_BUCKET,
                                      extent=extent,
                                      backend="polars")
             df_k_bin = df_k_bin.join(df_bin, on=id_columns, how="inner")
@@ -548,7 +548,7 @@ def main():
                         help="Quantization pipeline's step to perform")
     parser.add_argument("--transform", default=ArgTransform.DEFAULT, type=ArgTransform, action=EnumAction,
                         help="Type of transformation to perform on data")
-    parser.add_argument("--dir", default=PMW_ANALYSIS_DIR,
+    parser.add_argument("--dir", default=DIR_PMW_ANALYSIS,
                         help="Path to the directory to store quantized data in")
     parser.add_argument("--agg-off-cols", default=[], nargs="+",
                         help="Columns whose values are stored in lists, without aggregation")

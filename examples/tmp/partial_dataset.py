@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import polars as pl
 import numpy as np
 
-from pmw_analysis.constants import BUCKET_DIR, TC_COLUMNS, COLUMN_LON, COLUMN_LAT, PMW_ANALYSIS_DIR, COLUMN_COUNT, \
+from pmw_analysis.constants import DIR_BUCKET, TC_COLUMNS, COLUMN_LON, COLUMN_LAT, DIR_PMW_ANALYSIS, COLUMN_COUNT, \
     COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, ArgTransform
 from pmw_analysis.quantization.dataframe_polars import quantize_pmw_features, get_uncertainties_dict
 from pmw_analysis.quantization.script import get_transformation_function
@@ -23,7 +23,7 @@ def main():
     ]
     dfs_partial = []
     for extent in extents:
-        df_partial: pl.DataFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR,
+        df_partial: pl.DataFrame = gpm.bucket.read(bucket_dir=DIR_BUCKET,
                                                    columns=[COLUMN_TIME, COLUMN_LON, COLUMN_LAT, VARIABLE_SURFACE_TYPE_INDEX] + TC_COLUMNS,
                                                    extent=extent)
         dfs_partial.append(df_partial)
@@ -31,7 +31,7 @@ def main():
 
     unc_dict = {col: 1.0 * unc for col, unc in get_uncertainties_dict(TC_COLUMNS).items()}
     df_partial = quantize_pmw_features(df_partial, unc_dict, TC_COLUMNS)
-    df_default = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "default" / "final.parquet")
+    df_default = pl.read_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "default" / "final.parquet")
 
     feature_columns = copy(TC_COLUMNS)
     dfs = [df_default, df_partial]
@@ -53,13 +53,13 @@ def main():
             dfs[i] = df.with_columns(pl.col(tc_col).truediv(pl.col(tc_denom)).alias(ratio_col))
         feature_columns.append(ratio_col)
 
-    df_path = pathlib.Path(PMW_ANALYSIS_DIR) / "partial" / "final.parquet"
+    df_path = pathlib.Path(DIR_PMW_ANALYSIS) / "partial" / "final.parquet"
     df_path.parent.mkdir(exist_ok=True)
     dfs[1].write_parquet(df_path)
 
     transform_arg = ArgTransform.V2
     transform = get_transformation_function(transform_arg)
-    df_path = pathlib.Path(PMW_ANALYSIS_DIR) / transform_arg / "final.parquet"
+    df_path = pathlib.Path(DIR_PMW_ANALYSIS) / transform_arg / "final.parquet"
     df_transformed = pl.read_parquet(df_path)
 
     feature_columns = transform(TC_COLUMNS)

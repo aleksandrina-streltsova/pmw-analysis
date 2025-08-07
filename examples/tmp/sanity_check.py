@@ -2,7 +2,7 @@ import pathlib
 import polars as pl
 import matplotlib.pyplot as plt
 
-from pmw_analysis.constants import TC_COLUMNS, PMW_ANALYSIS_DIR, COLUMN_COUNT, ArgTransform
+from pmw_analysis.constants import TC_COLUMNS, DIR_PMW_ANALYSIS, COLUMN_COUNT, ArgTransform
 from pmw_analysis.quantization.script import get_transformation_function
 
 
@@ -10,7 +10,7 @@ def main():
     args_transform = ArgTransform.V2
     transform = get_transformation_function(args_transform)
     feature_columns = transform(TC_COLUMNS)
-    path = pathlib.Path(PMW_ANALYSIS_DIR) / args_transform / "final.parquet"
+    path = pathlib.Path(DIR_PMW_ANALYSIS) / args_transform / "final.parquet"
 
     df = pl.read_parquet(path)
     for tc_col in feature_columns:

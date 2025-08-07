@@ -17,9 +17,9 @@ from gpm.visualization.plot import _sanitize_cartopy_plot_kwargs
 from pycolorbar import get_plot_kwargs
 from tqdm import tqdm
 
-from pmw_analysis.constants import PMW_ANALYSIS_DIR, COLUMN_COUNT, TC_COLUMNS, COLUMN_OCCURRENCE, \
+from pmw_analysis.constants import DIR_PMW_ANALYSIS, COLUMN_COUNT, TC_COLUMNS, COLUMN_OCCURRENCE, \
     AGG_OFF_COLUMNS, SAVEFIG_FLAG, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_SUFFIX_QUANT
-from pmw_analysis.constants import PMW_ANALYSIS_DIR, COLUMN_COUNT, TC_COLUMNS, COLUMN_OCCURRENCE, ArgTransform, \
+from pmw_analysis.constants import DIR_PMW_ANALYSIS, COLUMN_COUNT, TC_COLUMNS, COLUMN_OCCURRENCE, ArgTransform, \
 from pmw_analysis.quantization.dataframe_polars import merge_quantized_pmw_features, \
     get_uncertainties_dict
 from pmw_analysis.quantization.script import get_transformation_function
@@ -58,7 +58,7 @@ def _calculate_nn_distances(df_all: pl.DataFrame, df_k: pl.DataFrame):
 
 
 def main():
-    df_dir_path = pathlib.Path(PMW_ANALYSIS_DIR) / "no_sun_glint"
+    df_dir_path = pathlib.Path(DIR_PMW_ANALYSIS) / "no_sun_glint"
     quant_columns = TC_COLUMNS
 
     images_dir = pathlib.Path("images") / "map" /  df_dir_path.name
@@ -92,8 +92,8 @@ def main():
 
     # 2. Check the distance to the closest neighbor
     distances = _calculate_nn_distances(df_quantized, df_quantized_k)
-    np.save(pathlib.Path(PMW_ANALYSIS_DIR) / "unique_k_nn_distances.npy", distances)
-    distances = np.load(pathlib.Path(PMW_ANALYSIS_DIR) / "unique_k_nn_distances.npy")
+    np.save(pathlib.Path(DIR_PMW_ANALYSIS) / "unique_k_nn_distances.npy", distances)
+    distances = np.load(pathlib.Path(DIR_PMW_ANALYSIS) / "unique_k_nn_distances.npy")
 
     print(f"{(distances == 1).sum()} / {len(distances)} = {100 * (distances == 1).sum() / len(distances):.2f}% "
           f"observations have their closest neighbor at distance 1")
@@ -115,11 +115,11 @@ def main():
 
     df = merge_quantized_pmw_features(dfs_filtered, quant_columns, AGG_OFF_COLUMNS)
 
-    df_quantized.write_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "unique.parquet")
-    df.write_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "unique_k.parquet")
+    df_quantized.write_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique.parquet")
+    df.write_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique_k.parquet")
 
     # TODO: replace `unique` with `final` or `newest` for consistency
-    df_quantized = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "unique.parquet")
+    df_quantized = pl.read_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique.parquet")
     df_k = pl.read_parquet(df_dir_path / "final_k.parquet")
     df.select(["lon", "lat", "qualityFlag"]).row(distances.argmax())
 

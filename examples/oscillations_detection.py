@@ -17,8 +17,8 @@ from pmw_analysis.constants import (
     COLUMN_OCCURRENCE_TIME,
     ATTR_NAME,
     SAVEFIG_FLAG,
-    SAVEFIG_DIR,
-    BUCKET_DIR, TC_COLUMNS, AGG_OFF_COLUMNS, COLUMN_LAT, COLUMN_LON, PMW_ANALYSIS_DIR,
+    DIR_IMAGES,
+    DIR_BUCKET, TC_COLUMNS, AGG_OFF_COLUMNS, COLUMN_LAT, COLUMN_LON, DIR_PMW_ANALYSIS,
 )
 from pmw_analysis.analysis.cycle_detection import detect_cycle, plot_cycle, plot_periodogram
 from pmw_analysis.quantization.dataframe_pandas import read_time_series_and_drop_nan
@@ -62,7 +62,7 @@ def main():
     point_greenland = (-47.125, 61.625)
     name_greenland = "Greenland"
 
-    images_dir = pathlib.Path(SAVEFIG_DIR) / "time_series" / "greenland"
+    images_dir = pathlib.Path(DIR_IMAGES) / "time_series" / "greenland"
     images_dir.mkdir(parents=True, exist_ok=True)
 
     quant_cols = TC_COLUMNS
@@ -71,14 +71,14 @@ def main():
 
     # 0. Check signatures that have appeared for the first time later than others
     for point, name in [(point_greenland, name_greenland)]:
-        ts_pl = gpm.bucket.read(bucket_dir=BUCKET_DIR, point=point, distance=DISTANCE)
+        ts_pl = gpm.bucket.read(bucket_dir=DIR_BUCKET, point=point, distance=DISTANCE)
 
         ts_pl_quantized = quantize_pmw_features(ts_pl, quant_cols, unc_dict, range_dict, AGG_OFF_COLUMNS)
         ts_pl_quantized = expand_occurrence_column(ts_pl_quantized)
 
         ts_pl_exploded = ts_pl_quantized.sort(COLUMN_OCCURRENCE_TIME, descending=True).explode(AGG_OFF_COLUMNS)
 
-        df_unique = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "unique.parquet")
+        df_unique = pl.read_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique.parquet")
         df_unique = expand_occurrence_column(df_unique)
 
         df_inner = df_unique.join(ts_pl_exploded, on=quant_cols, how="inner", nulls_equal=True)
@@ -95,7 +95,7 @@ def main():
 
     feature_cols = TC_COLUMNS + ["temp2mIndex"]
     for point, name in [(point_greenland, name_greenland)]:
-        ts = read_time_series_and_drop_nan(BUCKET_DIR, point, DISTANCE, name, feature_cols)
+        ts = read_time_series_and_drop_nan(DIR_BUCKET, point, DISTANCE, name, feature_cols)
         ts = ts[np.unique([COLUMN_TIME, COLUMN_LON, COLUMN_LAT, *quant_cols, *feature_cols, *l2_cols])]
         ts[COLUMN_TIME_FRACTION] = ts["time"].apply(timestamp_to_fraction)
 
@@ -104,7 +104,7 @@ def main():
                             as_index=False).agg("mean")
         else:
             # 1.1. Leave only the signatures that have appeared for the first time later than others
-            df_unique_k = pl.read_parquet(pathlib.Path(PMW_ANALYSIS_DIR) / "unique_k.parquet").select(quant_cols)
+            df_unique_k = pl.read_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique_k.parquet").select(quant_cols)
 
             is_in = _is_in_quantized(ts, df_unique_k, quant_cols, unc_dict, range_dict)
             ts_unique_k = ts.reset_index(drop=True)[is_in]
@@ -161,7 +161,7 @@ def main():
         corr_mtx = ts[feature_cols].corr().abs()
         sns.heatmap(corr_mtx, annot=True)
         if SAVEFIG_FLAG:
-            plt.savefig(pathlib.Path(SAVEFIG_DIR) / f"{name}_corr.png")
+            plt.savefig(pathlib.Path(DIR_IMAGES) / f"{name}_corr.png")
         plt.show()
 
     # 4. Detect cycles.

@@ -9,10 +9,10 @@ import polars as pl
 import seaborn as sns
 from feature_engine.selection import DropCorrelatedFeatures
 
-from pmw_analysis.constants import COLUMN_COUNT, TC_COLUMNS, PMW_ANALYSIS_DIR, VARIABLE_SURFACE_TYPE_INDEX
+from pmw_analysis.constants import COLUMN_COUNT, TC_COLUMNS, DIR_PMW_ANALYSIS, VARIABLE_SURFACE_TYPE_INDEX
 
 def main():
-    df_path = pathlib.Path(PMW_ANALYSIS_DIR) / "partial" / "final.parquet"
+    df_path = pathlib.Path(DIR_PMW_ANALYSIS) / "partial" / "final.parquet"
     df_merged: pl.DataFrame = pl.read_parquet(df_path)
 
     feature_columns = [

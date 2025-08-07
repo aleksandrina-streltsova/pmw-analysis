@@ -14,7 +14,7 @@ from matplotlib.colors import LogNorm
 from tqdm import tqdm
 
 from pmw_analysis.constants import (
-    PMW_ANALYSIS_DIR,
+    DIR_PMW_ANALYSIS,
     COLUMN_COUNT, COLUMN_ACCUM_UNIQUE, COLUMN_ACCUM_ALL, COLUMN_OCCURRENCE_TIME,
     ST_GROUP_SNOW, ST_GROUP_OCEAN, ST_GROUP_VEGETATION,
     VARIABLE_SURFACE_TYPE_INDEX,
@@ -387,7 +387,7 @@ def main():
     if args.path is not None:
         path = pathlib.Path(args.path)
     else:
-        path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform.value / "final.parquet"
+        path = pathlib.Path(DIR_PMW_ANALYSIS) / args.transform.value / "final.parquet"
     transform = get_transformation_function(args.transform)
 
     match args.analysis:
