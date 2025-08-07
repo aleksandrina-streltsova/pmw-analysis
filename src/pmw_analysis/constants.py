@@ -1,6 +1,7 @@
 """
 This module contains constants used throughout the project.
 """
+import enum
 
 COLUMN_COUNT = "count"
 COLUMN_ACCUM_UNIQUE = "accum_unique"
@@ -44,6 +45,7 @@ PRODUCT_2A_GMI = "2A-GMI"
 PRODUCT_TYPE_RS = "RS"
 
 VARIABLE_TC = "Tc"
+# TODO: create COLUMN_SURFACE_TYPE_INDEX and use two constants depending on the context
 VARIABLE_SURFACE_TYPE_INDEX = "surfaceTypeIndex"
 
 VERSION = 7
@@ -105,3 +107,41 @@ AGG_OFF_LIMIT = 100
 
 FILE_DF_FINAL = "final.parquet"
 FILE_DF_FINAL_K = "final_k.parquet"
+
+
+class ArgTransform(enum.Enum):
+    DEFAULT = "default"
+    PD = "pd"
+    RATIO = "ratio"
+    V1 = "v1"
+    V2 = "v2"
+    V3 = "v3"
+    V4 = "v4"
+
+
+class ArgQuantizationL2L3Columns(enum.Enum):
+    NONE = "none"
+    ANALYSIS_MINIMUM = "analysis_minimum"
+    ALL = "all"
+
+
+class ArgDimensionalityReduction(enum.Enum):
+    PCA = "pca"
+    UMAP = "umap"
+
+
+class ArgClustering(enum.Enum):
+    KMEANS = "kmeans"
+    HDBSCAN = "hdbscan"
+
+
+class ArgEDA(enum.Enum):
+    ACCUM = "accum"
+    PAIRPLOT = "pairplot"
+
+
+class ArgQuantizationStep(enum.Enum):
+    FACTOR = "factor"
+    QUANTIZE = "quantize"
+    MERGE = "merge"
+    NEWEST_K = "newest-k"

@@ -8,7 +8,7 @@ import polars as pl
 import numpy as np
 
 from pmw_analysis.constants import BUCKET_DIR, TC_COLUMNS, COLUMN_LON, COLUMN_LAT, PMW_ANALYSIS_DIR, COLUMN_COUNT, \
-    COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX
+    COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, ArgTransform
 from pmw_analysis.quantization.dataframe_polars import quantize_pmw_features, get_uncertainties_dict
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.polars import weighted_quantiles
@@ -57,7 +57,7 @@ def main():
     df_path.parent.mkdir(exist_ok=True)
     dfs[1].write_parquet(df_path)
 
-    transform_arg = "v2"
+    transform_arg = ArgTransform.V2
     transform = get_transformation_function(transform_arg)
     df_path = pathlib.Path(PMW_ANALYSIS_DIR) / transform_arg / "final.parquet"
     df_transformed = pl.read_parquet(df_path)

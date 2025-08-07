@@ -18,8 +18,9 @@ from pmw_analysis.constants import (
     COLUMN_COUNT, COLUMN_ACCUM_UNIQUE, COLUMN_ACCUM_ALL, COLUMN_OCCURRENCE_TIME,
     ST_GROUP_SNOW, ST_GROUP_OCEAN, ST_GROUP_VEGETATION,
     VARIABLE_SURFACE_TYPE_INDEX,
-    TC_COLUMNS, ST_COLUMNS, COLUMN_OCCURRENCE,
+    TC_COLUMNS, ST_COLUMNS, COLUMN_OCCURRENCE, ArgEDA, ArgTransform,
 )
+from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.dataframe_polars import filter_surface_type, expand_occurrence_column
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.polars import get_column_ranges, take_k_sorted
@@ -373,10 +374,9 @@ def _set_histograms2d_label(fig: plt.Figure, ax: plt.Axes, columns: List[str], i
 def main():
     parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
                                            description="Analyse quantized PMW features")
-    parser.add_argument("--analysis", default="accum", choices=["accum", "pairplot"], required=True,
+    parser.add_argument("--analysis", default=ArgEDA.ACCUM, type=ArgEDA, action=EnumAction, required=True,
                         help="Analysis to perform")
-    parser.add_argument("--transform", default="default",
-                        choices=["default", "pd", "ratio", "v1", "v2", "v3"],
+    parser.add_argument("--transform", default=ArgTransform.DEFAULT, type=ArgTransform, action=EnumAction,
                         help="Type of transformation performed on data")
     parser.add_argument("--path", help="Transformed data path if it is different from the default one")
     parser.add_argument("--var", help="Variable to use in analysis")
@@ -387,13 +387,16 @@ def main():
     if args.path is not None:
         path = pathlib.Path(args.path)
     else:
-        path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / "final.parquet"
+        path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform.value / "final.parquet"
     transform = get_transformation_function(args.transform)
 
-    if args.analysis == "accum":
-        plot_point_accumulation(path, args.var)
-    elif args.analysis == "pairplot":
-        analyze(path, args.var, transform, args.k)
+    match args.analysis:
+        case ArgEDA.ACCUM:
+            plot_point_accumulation(path, args.var)
+        case ArgEDA.PAIRPLOT:
+            analyze(path, args.var, transform, args.k)
+        case _:
+            raise ValueError(f"{args.analysis.value} is not supported.")
 
 
 if __name__ == '__main__':

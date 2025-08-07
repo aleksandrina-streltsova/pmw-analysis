@@ -17,7 +17,9 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import BUCKET_DIR, PMW_ANALYSIS_DIR, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, COLUMN_COUNT, \
     COLUMN_TIME, DEBUG_FLAG, COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID, COLUMN_LON_BIN, COLUMN_LAT_BIN, \
-    COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_K
+    COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_K, \
+    ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG
+from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features
 from pmw_analysis.utils.logging import disable_logging, timing
@@ -49,7 +51,7 @@ def quantize(path: pathlib.Path, transform: Callable, factor: float,
              month: int | None,
              year: int | None,
              agg_off_columns: List[str],
-             l1_only: bool = False):
+             l2_l3_columns: ArgQuantizationL2L3Columns):
     """
     Quantize fractions of data from bucket.
     """
@@ -70,9 +72,19 @@ def quantize(path: pathlib.Path, transform: Callable, factor: float,
 
             with timing("Reading from bucket"):
                 occurrence_columns = [COLUMN_LON, COLUMN_LAT, COLUMN_TIME]
-                columns = set(quant_columns + agg_off_columns + occurrence_columns) if l1_only else None
 
-                lf: pl.LazyFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR, columns=columns, extent=extent,
+                required_columns = set(TC_COLUMNS + agg_off_columns + occurrence_columns)
+                match l2_l3_columns:
+                    case ArgQuantizationL2L3Columns.NONE:
+                        columns = required_columns
+                    case ArgQuantizationL2L3Columns.ANALYSIS_MINIMUM:
+                        columns = required_columns
+                        columns.add(VARIABLE_SURFACE_TYPE_INDEX)
+                        columns.add(COLUMN_L1C_QUALITY_FLAG)
+                    case ArgQuantizationL2L3Columns.ALL:
+                        columns = None
+
+                lf: pl.DataFrame = gpm.bucket.read(bucket_dir=BUCKET_DIR, columns=columns, extent=extent,
                                                    backend="polars_lazy")
                 if year is not None:
                     lf = lf.filter(pl.col(COLUMN_TIME).dt.year() == year)
@@ -502,25 +514,27 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.D
     return df_k
 
 
-def get_transformation_function(arg_transform: str) -> Callable:
+def get_transformation_function(arg_transform: ArgTransform) -> Callable:
     """
     Return a transformation function based on the specified argument.
     """
-    if arg_transform == "pd":
-        transform = pd_transform
-    elif arg_transform == "ratio":
-        transform = ratio_transform
-    elif arg_transform == "v1":
-        transform = v1_transform
-    elif arg_transform == "v2":
-        transform = v2_transform
-    elif arg_transform == "v3":
-        transform = v3_transform
-    elif arg_transform == "v4":
-        transform = v4_transform
-    else:
-        transform = lambda x: x
-
+    match arg_transform:
+        case ArgTransform.DEFAULT:
+            transform = lambda x: x
+        case ArgTransform.PD:
+            transform = pd_transform
+        case ArgTransform.RATIO:
+            transform = ratio_transform
+        case ArgTransform.V1:
+            transform = v1_transform
+        case ArgTransform.V2:
+            transform = v2_transform
+        case ArgTransform.V3:
+            transform = v3_transform
+        case ArgTransform.V4:
+            transform = v4_transform
+        case _:
+            raise ValueError(f"{arg_transform.value} is not supported.")
     return transform
 
 
@@ -530,10 +544,9 @@ def main():
     parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
                                            description="Run quantization")
 
-    parser.add_argument("--step", default="factor", choices=["factor", "quantize", "merge", "newest-k"],
+    parser.add_argument("--step", type=ArgQuantizationStep, action=EnumAction,
                         help="Quantization pipeline's step to perform")
-    parser.add_argument("--transform", default="default",
-                        choices=["default", "pd", "ratio", "v1", "v2", "v3", "v4"],
+    parser.add_argument("--transform", default=ArgTransform.DEFAULT, type=ArgTransform, action=EnumAction,
                         help="Type of transformation to perform on data")
     parser.add_argument("--dir", default=PMW_ANALYSIS_DIR,
                         help="Path to the directory to store quantized data in")
@@ -541,17 +554,19 @@ def main():
                         help="Columns whose values are stored in lists, without aggregation")
     parser.add_argument("--month", type=int, help="Month of the data to quantize")
     parser.add_argument("--year", type=int, help="Year of the data to quantize")
-    parser.add_argument("--l1-only", type=bool, default=False, help="Remove L2 and L3 data before quantization")
+    parser.add_argument("--l2-l3-columns", default=ArgQuantizationL2L3Columns.ALL,
+                        type=ArgQuantizationL2L3Columns, action=EnumAction,
+                        help="L2 and L3 columns to process during quantization")
 
     args = parser.parse_args()
 
     assert not (args.year is None and args.month is not None)
 
-    path = pathlib.Path(args.dir) / args.transform
+    path = pathlib.Path(args.dir) / args.transform.value
     path.mkdir(parents=True, exist_ok=True)
 
     transform = get_transformation_function(args.transform)
-    if args.step == "factor":
+    if args.step == ArgQuantizationStep.FACTOR:
         estimate_uncertainty_factor(path, transform)
         return
 
@@ -564,12 +579,15 @@ def main():
         path = path / str(args.month)
     path.mkdir(parents=True, exist_ok=True)
 
-    if args.step == "quantize":
-        quantize(path, transform, factor, args.month, args.year, args.agg_off_cols, args.l1_only)
-    elif args.step == "merge":
-        merge(path, transform, args.agg_off_cols)
-    else:
-        get_newest_k(path, transform, K)
+    match args.step:
+        case ArgQuantizationStep.QUANTIZE:
+            quantize(path, transform, factor, args.month, args.year, args.agg_off_cols, args.l2_l3_columns)
+        case ArgQuantizationStep.MERGE:
+            merge(path, transform, args.agg_off_cols)
+        case ArgQuantizationStep.NEWEST_K:
+            get_newest_k(path, transform, K)
+        case _:
+            raise ValueError(f"{args.step.value} is not supported.")
 
 
 if __name__ == '__main__':

@@ -19,6 +19,7 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import PMW_ANALYSIS_DIR, COLUMN_COUNT, TC_COLUMNS, COLUMN_OCCURRENCE, \
     AGG_OFF_COLUMNS, SAVEFIG_FLAG, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_SUFFIX_QUANT
+from pmw_analysis.constants import PMW_ANALYSIS_DIR, COLUMN_COUNT, TC_COLUMNS, COLUMN_OCCURRENCE, ArgTransform, \
 from pmw_analysis.quantization.dataframe_polars import merge_quantized_pmw_features, \
     get_uncertainties_dict
 from pmw_analysis.quantization.script import get_transformation_function
@@ -28,7 +29,7 @@ K = 100000
 
 
 def _calculate_nn_distances(df_all: pl.DataFrame, df_k: pl.DataFrame):
-    transform = get_transformation_function("default")
+    transform = get_transformation_function(ArgTransform.DEFAULT)
     quant_columns = transform(TC_COLUMNS)
     unc_dict = {col: 10 * unc for col, unc in transform(get_uncertainties_dict(TC_COLUMNS)).items()}
 

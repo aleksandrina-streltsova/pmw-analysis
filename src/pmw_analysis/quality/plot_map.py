@@ -15,8 +15,9 @@ import xarray as xr
 
 from pmw_analysis.constants import PRODUCT_1C_GMI_R, PRODUCT_TYPE_RS, VERSION, \
     STORAGE_GES_DISC, VARIABLE_TC, COLUMN_CLUSTER, PRODUCT_2A_GMI, TC_COLUMNS, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, \
-    PMW_ANALYSIS_DIR
+    PMW_ANALYSIS_DIR, ArgTransform, ArgDimensionalityReduction, ArgClustering
 from pmw_analysis.analysis.clustering import ClusterModel
+from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.pyplot import get_surface_type_cmap
 
@@ -150,14 +151,14 @@ def main():
     parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
                                            description="Plot clustering results on map")
 
-    parser.add_argument("--transform", default="default",
-                        choices=["default", "pd", "ratio", "partial", "v1", "v2"],
+    parser.add_argument("--transform", default=ArgTransform.DEFAULT,
+                        type=ArgTransform, action=EnumAction,
                         help="Type of transformation performed on data")
-    parser.add_argument("--reduction", choices=["pca", "umap"])
-    parser.add_argument("--clustering", choices=["kmeans", "hdbscan"])
+    parser.add_argument("--reduction", type=ArgDimensionalityReduction, action=EnumAction)
+    parser.add_argument("--clustering", type=ArgClustering, action=EnumAction)
 
     args = parser.parse_args()
-    model_path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / f"{args.reduction}_{args.clustering}.pkl"
+    model_path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform.value / f"{args.reduction}_{args.clustering}.pkl"
     transform = get_transformation_function(args.transform)
 
     plot_map(model_path, transform)

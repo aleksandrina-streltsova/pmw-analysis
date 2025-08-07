@@ -55,7 +55,7 @@ def compute_2d_histogram(df, x, y, var=None, x_bins=10, y_bins=10, x_labels=None
     df = df.dropna(subset=[x, y, var])
 
     if len(df) == 0:
-        raise ValueError("No valid data points after removing NaN values")
+        raise ValueError("No valid data points after removing NaN values.")
 
     # Create binned columns with explicit handling of out-of-bounds values
     df[f"{x}_binned"] = pd.cut(df[x], bins=x_bins, include_lowest=True)

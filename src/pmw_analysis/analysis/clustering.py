@@ -21,8 +21,9 @@ from umap import UMAP
 from umap.umap_ import nearest_neighbors
 
 from pmw_analysis.constants import COLUMN_COUNT, PMW_ANALYSIS_DIR, ST_COLUMNS, ST_GROUP_VEGETATION, \
-    ST_GROUP_OCEAN, ST_GROUP_SNOW
+    ST_GROUP_OCEAN, ST_GROUP_SNOW, ArgTransform, ArgDimensionalityReduction, ArgClustering
 from pmw_analysis.constants import VARIABLE_SURFACE_TYPE_INDEX, COLUMN_OCCURRENCE, TC_COLUMNS
+from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.copypaste.wpca import WPCA
 from pmw_analysis.quantization.dataframe_polars import filter_surface_type
 from pmw_analysis.quantization.script import get_transformation_function
@@ -30,11 +31,6 @@ from pmw_analysis.utils.logging import timing
 from pmw_analysis.utils.pyplot import plot_histograms2d, HistogramData
 
 N_BINS = 200
-
-DR_PCA = "pca"
-DR_UMAP = "umap"
-CLUSTER_KMEANS = "kmeans"
-CLUSTER_HDBSCAN = "hdbscan"
 
 
 class ClusterModel:
@@ -176,7 +172,9 @@ def _pca_fit_transform(data, weight, n_components=2):
     return fs_reduced, reducer
 
 
-def clusterize(df_path: pathlib.Path, reduction: str, clustering: str, transform: Callable):
+def clusterize(df_path: pathlib.Path,
+               reduction: ArgDimensionalityReduction, clustering: ArgClustering,
+               transform: Callable):
     """
     Perform clustering on the specified dataset.
     """
@@ -199,10 +197,10 @@ def clusterize(df_path: pathlib.Path, reduction: str, clustering: str, transform
     df = df.sort(COLUMN_COUNT, descending=False)
     df = df.with_columns((pl.col(COLUMN_COUNT).cum_sum() / pl.col(COLUMN_COUNT).sum()).alias(column_cum_prob))
 
-    # reduction = "umap"
-    # clustering = "kmeans"
+    # reduction = ArgDimensionalityReduction.UMAP
+    # clustering = ArgClustering.KMEANS
 
-    if reduction == "umap" or clustering == "hdbscan":
+    if reduction == ArgDimensionalityReduction.UMAP or clustering == ArgClustering.HDBSCAN:
         df_train = df.filter(pl.col(column_cum_prob) > 0.05)
         logging.info("%d/%d rows after filtering", len(df_train), len(df))
     else:
@@ -216,34 +214,36 @@ def clusterize(df_path: pathlib.Path, reduction: str, clustering: str, transform
         features_train_scaled = scaler.fit_transform(features_train, sample_weight=weight_train)
 
     with timing("Reducing dimensionality (train)"):
-        if reduction == DR_PCA:
-            features_train_reduced, reducer = _pca_fit_transform(features_train_scaled,
-                                                                 weight_train if use_weights else None,
-                                                                 n_components=None)
-        elif reduction == DR_UMAP:
-            knn_path = pathlib.Path(df_path.parent / f"knn_{len(df_train)}.pkl")
-            features_train_reduced, reducer = _umap_fit_transform(features_train_scaled,
-                                                                  n_components=2, max_iter=500,
-                                                                  n_neighbors=200, min_dist=0.95,
-                                                                  knn_path=knn_path)
-        else:
-            raise ValueError(f"{reduction} is not supported")
+        match reduction:
+            case ArgDimensionalityReduction.PCA:
+                features_train_reduced, reducer = _pca_fit_transform(features_train_scaled,
+                                                                     weight_train if use_weights else None,
+                                                                     n_components=None)
+            case ArgDimensionalityReduction.UMAP:
+                knn_path = pathlib.Path(df_path.parent / f"knn_{len(df_train)}.pkl")
+                features_train_reduced, reducer = _umap_fit_transform(features_train_scaled,
+                                                                      n_components=2, max_iter=500,
+                                                                      n_neighbors=200, min_dist=0.95,
+                                                                      knn_path=knn_path)
+            case _:
+                raise ValueError(f"{reduction.value} is not supported.")
 
     with timing("Clustering (train)"):
-        if clustering == CLUSTER_KMEANS:
-            n_clusters = 4
-            clusterer = KMeans(n_clusters=n_clusters)
-            clusterer.fit(features_train_reduced, sample_weight=weight_train)
-        elif clustering == CLUSTER_HDBSCAN:
-            clusterer_base = hdbscan.HDBSCAN(min_cluster_size=100, prediction_data=True)
-            clusterer_base.fit(features_train_reduced)
+        match clustering:
+            case ArgClustering.KMEANS:
+                n_clusters = 4
+                clusterer = KMeans(n_clusters=n_clusters)
+                clusterer.fit(features_train_reduced, sample_weight=weight_train)
+            case ArgClustering.HDBSCAN:
+                clusterer_base = hdbscan.HDBSCAN(min_cluster_size=100, prediction_data=True)
+                clusterer_base.fit(features_train_reduced)
 
-            labels_train = hdbscan.approximate_predict(clusterer_base, features_train_reduced)[0]
+                labels_train = hdbscan.approximate_predict(clusterer_base, features_train_reduced)[0]
 
-            clusterer = CLusterIndexModel(features_train_reduced, labels_train)
-            n_clusters = labels_train.max() + 1
-        else:
-            raise ValueError(f"{clustering} is not supported")
+                clusterer = CLusterIndexModel(features_train_reduced, labels_train)
+                n_clusters = labels_train.max() + 1
+            case _:
+                raise ValueError(f"{clustering.value} is not supported.")
 
     final_model = ClusterModel(scaler, reducer, clusterer)
     final_model.save(df_path.parent / f"{reduction}_{clustering}.pkl")
@@ -279,7 +279,7 @@ def clusterize(df_path: pathlib.Path, reduction: str, clustering: str, transform
                       alpha=0.8, cmap=None, color=None, x_label="Component 1", y_label="Component 2")
         for cluster in range(n_clusters)
     ]
-    clustering_title = "KMeans++" if clustering == "kmeans" else "HDBSCAN"
+    clustering_title = "KMeans++" if clustering == ArgClustering.KMEANS else "HDBSCAN"
     plot_histograms2d(hist_datas, path=file_path, title=clustering_title, bins=N_BINS,
                       use_log_norm=use_log_norm, use_shared_norm=False)
 
@@ -314,15 +314,15 @@ def main():
     parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
                                            description="Run clustering and visualize results using DR")
 
-    parser.add_argument("--transform", default="default",
-                        choices=["default", "pd", "ratio", "partial", "v1", "v2", "v3"],
+    parser.add_argument("--transform", default=ArgTransform.DEFAULT,
+                        type=ArgTransform, action=EnumAction,
                         help="Type of transformation performed on data")
-    parser.add_argument("--reduction", choices=["pca", "umap"])
-    parser.add_argument("--clustering", choices=["kmeans", "hdbscan"])
+    parser.add_argument("--reduction", type=ArgDimensionalityReduction, action=EnumAction)
+    parser.add_argument("--clustering", type=ArgClustering, action=EnumAction)
 
     args = parser.parse_args()
     transform = get_transformation_function(args.transform)
-    path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / "final.parquet"
+    path = pathlib.Path(PMW_ANALYSIS_DIR) / args.transform.value / "final.parquet"
     clusterize(path, args.reduction, args.clustering, transform)
 
 

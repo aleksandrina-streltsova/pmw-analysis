@@ -12,8 +12,9 @@ import polars as pl
 import seaborn as sns
 
 from pmw_analysis.constants import BUCKET_DIR, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, TC_COLUMNS, \
-    PMW_ANALYSIS_DIR
+    PMW_ANALYSIS_DIR, ArgTransform, ArgDimensionalityReduction, ArgClustering
 from pmw_analysis.analysis.clustering import ClusterModel
+from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.dataframe_polars import _replace_special_missing_values_with_null
 from pmw_analysis.quantization.script import get_transformation_function
 
@@ -129,8 +130,8 @@ def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str,
 
 
 def main(model_path, transform):
-    # reduction = "pca"
-    # clustering = "kmeans"
+    # reduction = ArgDimensionalityReduction.PCA
+    # clustering = ArgClustering.KMEANS
     # model_path = pathlib.Path(PMW_ANALYSIS_DIR) / "v2" / f"{reduction}_{clustering}.pkl"
     # transform = get_transformation_function("v2")
 
@@ -166,14 +167,14 @@ if __name__ == '__main__':
     parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
                                            description="Calculate F1-score")
 
-    parser.add_argument("--transform", default="default",
-                        choices=["default", "pd", "ratio", "partial", "v1", "v2"],
+    parser.add_argument("--transform", default=ArgTransform.DEFAULT,
+                        type=ArgTransform, action=EnumAction,
                         help="Type of transformation performed on data")
-    parser.add_argument("--reduction", choices=["pca", "umap"])
-    parser.add_argument("--clustering", choices=["kmeans", "hdbscan"])
+    parser.add_argument("--reduction", type=ArgDimensionalityReduction, action=EnumAction)
+    parser.add_argument("--clustering", type=ArgClustering, action=EnumAction)
 
     args = parser.parse_args()
     main(
-        model_path=pathlib.Path(PMW_ANALYSIS_DIR) / args.transform / f"{args.reduction}_{args.clustering}.pkl",
+        model_path=pathlib.Path(PMW_ANALYSIS_DIR) / args.transform.value / f"{args.reduction}_{args.clustering}.pkl",
         transform=get_transformation_function(args.transform)
     )
