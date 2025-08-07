@@ -39,6 +39,7 @@ DEBUG_FLAG = False
 DIR_IMAGES = "images"
 DIR_BUCKET = "/ltenas8/data/GPM_Buckets/GMI"
 DIR_PMW_ANALYSIS = "/ltenas8/data/PMW_Analysis"
+DIR_NO_SUN_GLINT = "no_sun_glint"
 
 PRODUCT_1C_GMI_R = "1C-GMI-R"
 PRODUCT_2A_GMI = "2A-GMI"

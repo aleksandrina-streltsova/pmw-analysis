@@ -18,11 +18,13 @@ from tqdm import tqdm
 from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, COLUMN_COUNT, \
     COLUMN_TIME, DEBUG_FLAG, COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID, COLUMN_LON_BIN, COLUMN_LAT_BIN, \
     COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_K, \
-    ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG
+    ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
+    DIR_NO_SUN_GLINT
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
-    merge_quantized_pmw_features
+    merge_quantized_pmw_features, create_occurrence_column
 from pmw_analysis.utils.logging import disable_logging, timing
+from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_possible_sun_glint
 from pmw_analysis.utils.polars import take_k_sorted
 
 UNCERTAINTY_FACTOR_MAX = 20
@@ -470,10 +472,22 @@ def get_range_dict() -> Dict[str, float]:
 def get_newest_k(path: pathlib.Path, transform: Callable, k: int):
     df_id = pl.read_parquet(path / FILE_DF_FINAL)
 
+    # 1. Get observations before quantization
     df_id_k = take_k_sorted(df_id, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
     df_k = _get_bucket_data_for_ids(df_id_k, transform)
 
+    # 2. Add a column to mark sun glint presence
+    df_k = create_occurrence_column(df_k)
+    df_k, sun_glint_column = retrieve_possible_sun_glint(df_k)
+
     df_k.write_parquet(path / FILE_DF_FINAL_K)
+
+    # 3. Store observations excluding the ones affected by sun glint
+    dir_no_sun_glint = path / DIR_NO_SUN_GLINT
+    dir_no_sun_glint.mkdir(parents=True, exist_ok=True)
+    df_k_no_sun_glint = df_k.filter(~pl.col(sun_glint_column)).drop(sun_glint_column)
+
+    df_k_no_sun_glint.write_parquet(dir_no_sun_glint / "final_k.parquet")
 
 
 def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.DataFrame:
