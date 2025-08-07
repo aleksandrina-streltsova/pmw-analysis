@@ -146,3 +146,19 @@ class ArgQuantizationStep(enum.Enum):
     QUANTIZE = "quantize"
     MERGE = "merge"
     NEWEST_K = "newest-k"
+
+
+class ArgSurfaceType(enum.Enum):
+    LAND = "land"
+    OCEAN = "ocean"
+    ALL = "all"
+
+    def indexes(self):
+        ocean_indexes = [1, 2, 13, 14, 16]
+        if self == ArgSurfaceType.LAND:
+            # 14 - Mixed land/ocean or water coast, so it is included in both `LAND` and `OCEAN`
+            return [i for i in range(1, 19) if i not in ocean_indexes or i == 14]
+        elif self == ArgSurfaceType.OCEAN:
+            return ocean_indexes
+        else:
+            return list(range(1, 19))

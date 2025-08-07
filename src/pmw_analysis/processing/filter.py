@@ -1,8 +1,8 @@
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, List
 
 import polars as pl
 
-from pmw_analysis.constants import COLUMN_SUFFIX_QUANT, COLUMN_COUNT
+from pmw_analysis.constants import COLUMN_SUFFIX_QUANT, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, STRUCT_FIELD_COUNT
 
 
 def filter_by_signature_occurrences_count(df: pl.DataFrame,
@@ -20,3 +20,23 @@ def filter_by_signature_occurrences_count(df: pl.DataFrame,
     df_quant_m = df_quant_m.filter(pl.col(COLUMN_COUNT) >= m_occurrences)
 
     return df_quant_m, quant_columns_suffixed
+
+
+def filter_by_surface_type(df, flag_value: int | List[int]) -> pl.DataFrame:
+    """
+    Filter values in data frame leaving only those with the specified surface type.
+    """
+    if isinstance(flag_value, int):
+        flag_values = [flag_value]
+    else:
+        flag_values = set(flag_value)
+
+    if isinstance(df[VARIABLE_SURFACE_TYPE_INDEX], pl.datatypes.List):
+        df_result = df.with_columns(
+            pl.col(VARIABLE_SURFACE_TYPE_INDEX).list.eval(
+                pl.element().filter(pl.element().struct.field(VARIABLE_SURFACE_TYPE_INDEX).is_in(flag_values))
+            ).list.first().struct.field(STRUCT_FIELD_COUNT).alias(COLUMN_COUNT)
+        )
+    else:
+        df_result = df.filter(pl.col(VARIABLE_SURFACE_TYPE_INDEX).is_in(flag_values))
+    return df_result

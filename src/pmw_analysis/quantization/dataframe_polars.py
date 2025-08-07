@@ -3,14 +3,14 @@ This module contains methods for quantization of data using Polars data frames.
 """
 import logging
 from dataclasses import dataclass
-from typing import Dict, Tuple, List, Sequence
+from typing import Dict, Tuple, Sequence
 
 import pandas as pd
 import polars as pl
 from tqdm import tqdm
 
-from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, \
-    COLUMN_LON, COLUMN_LAT, COLUMN_OCCURRENCE, COLUMN_OCCURRENCE_TIME, COLUMN_OCCURRENCE_LON, COLUMN_OCCURRENCE_LAT, \
+from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME, COLUMN_LON, COLUMN_LAT, \
+    COLUMN_OCCURRENCE, COLUMN_OCCURRENCE_TIME, COLUMN_OCCURRENCE_LON, COLUMN_OCCURRENCE_LAT, \
     DEBUG_FLAG, AGG_OFF_LIMIT
 
 
@@ -516,25 +516,6 @@ def merge_quantized_features(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
 
 
 ###############################################################################
-
-def filter_surface_type(df, flag_value: int | List[int]) -> pl.DataFrame:
-    """
-    Filter values in data frame leaving only those with the specified surface type.
-    """
-    if isinstance(flag_value, int):
-        flag_values = [flag_value]
-    else:
-        flag_values = set(flag_value)
-
-    if isinstance(df[VARIABLE_SURFACE_TYPE_INDEX], pl.datatypes.List):
-        df_result = df.with_columns(
-            pl.col(VARIABLE_SURFACE_TYPE_INDEX).list.eval(
-                pl.element().filter(pl.element().struct.field(VARIABLE_SURFACE_TYPE_INDEX).is_in(flag_values))
-            ).list.first().struct.field(STRUCT_FIELD_COUNT).alias(COLUMN_COUNT)
-        )
-    else:
-        df_result = df.filter(pl.col(VARIABLE_SURFACE_TYPE_INDEX).is_in(flag_values))
-    return df_result
 
 
 def create_occurrence_column(df: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:

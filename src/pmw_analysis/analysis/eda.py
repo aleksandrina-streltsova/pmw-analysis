@@ -21,7 +21,8 @@ from pmw_analysis.constants import (
     TC_COLUMNS, ST_COLUMNS, COLUMN_OCCURRENCE, ArgEDA, ArgTransform,
 )
 from pmw_analysis.copypaste.utils.cli import EnumAction
-from pmw_analysis.quantization.dataframe_polars import filter_surface_type, expand_occurrence_column
+from pmw_analysis.quantization.dataframe_polars import expand_occurrence_column
+from pmw_analysis.processing.filter import filter_by_surface_type
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.polars import get_column_ranges, take_k_sorted
 from pmw_analysis.utils.pyplot import finalize_axis
@@ -209,10 +210,10 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
     df_to_use_k = df_k
 
     if flag_values is not None:
-        df_to_use = filter_surface_type(df_to_use, flag_values)
+        df_to_use = filter_by_surface_type(df_to_use, flag_values)
 
         if df_to_use_k is not None:
-            df_to_use_k = filter_surface_type(df_to_use_k, flag_values)
+            df_to_use_k = filter_by_surface_type(df_to_use_k, flag_values)
 
     if var is not None:
         cmap = "YlGnBu"

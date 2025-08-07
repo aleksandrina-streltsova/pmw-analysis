@@ -19,8 +19,9 @@ from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COL
     COLUMN_TIME, DEBUG_FLAG, COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID, COLUMN_LON_BIN, COLUMN_LAT_BIN, \
     COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_K, \
     ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
-    DIR_NO_SUN_GLINT
+    DIR_NO_SUN_GLINT, ArgSurfaceType
 from pmw_analysis.copypaste.utils.cli import EnumAction
+from pmw_analysis.processing.filter import filter_by_surface_type
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features, create_occurrence_column
 from pmw_analysis.utils.logging import disable_logging, timing
@@ -49,7 +50,7 @@ def _calculate_bounds(x_step: int = X_STEP, y_step: int = Y_STEP) -> Tuple[List[
     return x_bounds, y_bounds
 
 
-def quantize(path: pathlib.Path, transform: Callable, factor: float,
+def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, factor: float,
              month: int | None,
              year: int | None,
              agg_off_columns: List[str],
@@ -93,7 +94,7 @@ def quantize(path: pathlib.Path, transform: Callable, factor: float,
                 if month is not None:
                     lf = lf.filter(pl.col(COLUMN_TIME).dt.month() == month)
 
-            lf = transform(lf)
+            lf = transform(filter_rows(lf))
 
             with timing("Quantizing"):
                 lf_result = quantize_pmw_features(lf, quant_columns, unc_dict, range_dict, agg_off_columns)
@@ -349,8 +350,7 @@ def v4_transform(obj, drop: bool = True):
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
-
-def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
+def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable, filter_rows: Callable):
     """
     Estimate a factor which uncertainty should be multiplied by during quantization.
     Write the estimated factor into a file in the parent directory of the specified path.
@@ -371,10 +371,9 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable):
     for idx_x, idx_y in tqdm(zip(np.random.choice(np.arange(len(x_bounds) - 1), k),
                                  np.random.choice(np.arange(len(y_bounds) - 1), k)), total=k):
         extent = [x_bounds[idx_x], x_bounds[idx_x + 1], y_bounds[idx_y], y_bounds[idx_y + 1]]
-        lf: pl.LazyFrame = gpm.bucket.read(DIR_BUCKET, extent,
-                                           columns=TC_COLUMNS + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME],
-                                           backend="polars_lazy")
-        lfs.append(transform(lf))
+        columns = TC_COLUMNS + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX]
+        lf: pl.LazyFrame = gpm.bucket.read(DIR_BUCKET, extent, columns=columns, backend="polars")
+        lfs.append(transform(filter_rows(lf)))
 
     quant_columns = transform(TC_COLUMNS)
 
@@ -571,17 +570,22 @@ def main():
     parser.add_argument("--l2-l3-columns", default=ArgQuantizationL2L3Columns.ALL,
                         type=ArgQuantizationL2L3Columns, action=EnumAction,
                         help="L2 and L3 columns to process during quantization")
+    parser.add_argument("--surface-type", default=ArgSurfaceType.ALL,
+                        type=ArgSurfaceType, action=EnumAction,
+                        help="Surface type to process during quantization")
 
     args = parser.parse_args()
 
     assert not (args.year is None and args.month is not None)
 
-    path = pathlib.Path(args.dir) / args.transform.value
+    path = pathlib.Path(args.dir) / args.transform.value / args.surface_type.value
     path.mkdir(parents=True, exist_ok=True)
 
     transform = get_transformation_function(args.transform)
+    filter_rows = lambda df: filter_by_surface_type(df, args.surface_type.indexes())
+
     if args.step == ArgQuantizationStep.FACTOR:
-        estimate_uncertainty_factor(path, transform)
+        estimate_uncertainty_factor(path, transform, filter_rows)
         return
 
     with open(path / "factor", "r", encoding="utf-8") as file:
@@ -595,7 +599,7 @@ def main():
 
     match args.step:
         case ArgQuantizationStep.QUANTIZE:
-            quantize(path, transform, factor, args.month, args.year, args.agg_off_cols, args.l2_l3_columns)
+            quantize(path, transform, filter_rows, factor, args.month, args.year, args.agg_off_cols, args.l2_l3_columns)
         case ArgQuantizationStep.MERGE:
             merge(path, transform, args.agg_off_cols)
         case ArgQuantizationStep.NEWEST_K:

@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from pmw_analysis.analysis.spatial_visualization import plot_variables_on_map
 from pmw_analysis.constants import COLUMN_LON, COLUMN_LAT, FILE_DF_FINAL_K, \
-    DIR_NO_SUN_GLINT, DIR_IMAGES
+    DIR_NO_SUN_GLINT, DIR_IMAGES, ArgSurfaceType
 from pmw_analysis.constants import DIR_PMW_ANALYSIS, TC_COLUMNS, ArgTransform
 from pmw_analysis.processing.filter import filter_by_signature_occurrences_count
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict
@@ -50,7 +50,8 @@ def _calculate_nn_distances(df_all: pl.DataFrame, df_k: pl.DataFrame):
 
 def main():
     arg_transform = ArgTransform.V4
-    df_dir_path = pathlib.Path(DIR_PMW_ANALYSIS) / arg_transform.value / DIR_NO_SUN_GLINT
+    arg_surface_type = ArgSurfaceType.OCEAN
+    df_dir_path = pathlib.Path(DIR_PMW_ANALYSIS) / arg_transform.value / arg_surface_type.OCEAN.value / DIR_NO_SUN_GLINT
     transform = get_transformation_function(arg_transform)
     quant_columns = transform(TC_COLUMNS)
 
