@@ -75,9 +75,18 @@ class CLusterIndexModel:
     A clustering model which clusters data using nearest neighbors search with a precomputed index.
     """
 
-    def __init__(self, index_train, labels_train):
+    def __init__(self, features_train, labels_train):
+        if isinstance(features_train, pl.DataFrame):
+            features_train = features_train.to_numpy()
+
+        non_noisy_data = features_train[labels_train != -1]
+        non_noisy_labels = labels_train[labels_train != -1]
+
+        index_train = faiss.IndexFlatL2(non_noisy_data.shape[1])
+        index_train.add(non_noisy_data)
+
         self.index_train = index_train
-        self.labels_train = labels_train
+        self.labels_train = non_noisy_labels
 
     def predict(self, features_reduced):
         """
@@ -147,7 +156,7 @@ def _umap_fit_transform(features: pl.DataFrame,
     features_reduced = reducer_base.fit_transform(features)
 
     index = faiss.IndexFlatL2(features.shape[1])
-    index.add(features.shape[0], features)
+    index.add(features)
 
     reducer = DimensionalityReductionIndexModel(index, features_reduced)
     return features_reduced, reducer
@@ -230,13 +239,8 @@ def clusterize(df_path: pathlib.Path, reduction: str, clusterization: str, trans
             clusterer_base.fit(features_train_reduced)
 
             labels_train = hdbscan.approximate_predict(clusterer_base, features_train_reduced)[0]
-            non_noisy_data = features_train_reduced[labels_train != -1]
-            non_noisy_labels = labels_train[labels_train != -1]
 
-            index = faiss.IndexFlatL2(non_noisy_data.shape[1])
-            index.add(non_noisy_data.shape[0], non_noisy_data)
-
-            clusterer = CLusterIndexModel(index, non_noisy_labels)
+            clusterer = CLusterIndexModel(features_train_reduced, labels_train)
             n_clusters = labels_train.max() + 1
         else:
             raise ValueError(f"{clusterization} is not supported")

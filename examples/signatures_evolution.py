@@ -43,7 +43,7 @@ def _calculate_nn_distances(df_all: pl.DataFrame, df_k: pl.DataFrame):
     distances = np.zeros(len(array_k))
 
     index = faiss.IndexFlatL2(array_all.shape[1])
-    index.add(len(array_all), array_all)
+    index.add(array_all)
 
     # divide query into m parts to estimate total time more easily
     m = 100
