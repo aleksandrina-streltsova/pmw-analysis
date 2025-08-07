@@ -11,7 +11,7 @@ import pyproj
 from gpm.bucket import LonLatPartitioning
 from gpm.dataset.crs import set_dataset_crs
 
-from pmw_analysis.constants import SAVEFIG_DIR, SAVEFIG_FLAG, BUCKET_DIR, COLUMN_TIME
+from pmw_analysis.constants import SAVEFIG_DIR, SAVEFIG_FLAG, BUCKET_DIR, COLUMN_TIME, COLUMN_LON, COLUMN_LAT
 
 # Define extent and bucket directory
 extent = [28, 32, 58, 62]
@@ -20,16 +20,14 @@ extent = [28, 32, 58, 62]
 #### Define analysis options
 # - GMI: 10.6 GHz, 18.7 GHz
 
-LON_COLUMN = 'lon'
-LAT_COLUMN = 'lat'
 # TODO: what do different columns mean?
 QUALITY_LF_COL = 'Quality_LF'
 PRECIP_PROB_COL = "probabilityOfPrecip"
 SURFACE_PRECIP_COL = 'surfacePrecipitation'
 
 columns = [
-    LON_COLUMN,
-    LAT_COLUMN,
+    COLUMN_LON,
+    COLUMN_LAT,
     'time',
 
     'Tc_10H',
