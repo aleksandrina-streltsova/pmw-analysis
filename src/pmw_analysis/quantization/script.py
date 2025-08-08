@@ -30,13 +30,22 @@ from pmw_analysis.utils.polars import take_k_sorted
 
 UNCERTAINTY_FACTOR_MAX = 20
 
+FLAG_TEST = False
+N_DFS_TEST = 3
+
 X_STEP = 10
 Y_STEP = 4
+X_STEP_TEST = 1
+Y_STEP_TEST = 1
 
 K = 100000
 
 
 def _calculate_bounds(x_step: int = X_STEP, y_step: int = Y_STEP) -> Tuple[List[float], List[float]]:
+    if FLAG_TEST:
+        x_step = X_STEP_TEST
+        y_step = Y_STEP_TEST
+
     p: LonLatPartitioning = get_bucket_spatial_partitioning(DIR_BUCKET)
     x_bounds = p.x_bounds.tolist()
     y_bounds = list(filter(lambda b: abs(b) <= 70, p.y_bounds))
@@ -68,6 +77,8 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, fac
     for idx_x, (x_bound_l, x_bound_r) in enumerate(zip(x_bounds, x_bounds[1:])):
         for idx_y, (y_bound_l, y_bound_r) in enumerate(zip(y_bounds, y_bounds[1:])):
             idx = idx_x * (len(y_bounds) - 1) + idx_y
+            if FLAG_TEST and idx >= N_DFS_TEST:
+                break
 
             path_single = path / f"{idx}.parquet"
             if path_single.exists():
@@ -150,7 +161,7 @@ def merge(path: pathlib.Path, transform: Callable, agg_off_columns: List[str]):
         return
 
     x_bounds, y_bounds = _calculate_bounds()
-    n = (len(x_bounds) - 1) * (len(y_bounds) - 1)
+    n = (len(x_bounds) - 1) * (len(y_bounds) - 1) if not FLAG_TEST else N_DFS_TEST
 
     level = 0
     path_final = path
