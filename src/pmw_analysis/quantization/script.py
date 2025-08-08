@@ -63,8 +63,10 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, fac
     quant_columns = transform(TC_COLUMNS)
 
     x_bounds, y_bounds = _calculate_bounds()
+
+    progress_bar = tqdm(total=(len(x_bounds) - 1) * (len(y_bounds) - 1))
     for idx_x, (x_bound_l, x_bound_r) in enumerate(zip(x_bounds, x_bounds[1:])):
-        for idx_y, (y_bound_l, y_bound_r) in tqdm(enumerate(zip(y_bounds, y_bounds[1:])), total=1):
+        for idx_y, (y_bound_l, y_bound_r) in enumerate(zip(y_bounds, y_bounds[1:])):
             idx = idx_x * (len(y_bounds) - 1) + idx_y
 
             path_single = path / f"{idx}.parquet"
@@ -105,6 +107,8 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, fac
             if FLAG_DEBUG:
                 logging.info(lf.select(pl.len()).collect(engine="streaming").item() /
                              lf_result.select(pl.len()).collect(engine="streaming").item())
+
+            progress_bar.update(1)
 
 
 def _merge_partial(path: pathlib.Path, path_next: pathlib.Path, path_final: pathlib.Path,
@@ -508,12 +512,14 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.D
 
     dfs_k_bin = []
 
-    for x_min, x_max, x_c in tqdm(zip(p.x_bounds[:-1], p.x_bounds[1:], p.x_centroids), total=len(p.x_centroids)):
+    progress_bar = tqdm(total=(len(p.x_bounds) - 1) * (len(p.y_bounds) - 1))
+    for x_min, x_max, x_c in zip(p.x_bounds[:-1], p.x_bounds[1:], p.x_centroids):
         for y_min, y_max, y_c in zip(p.y_bounds[:-1], p.y_bounds[1:], p.y_centroids):
             df_k_bin = df_id_k_agg.filter(pl.col(COLUMN_LON_BIN) == x_c, pl.col(COLUMN_LAT_BIN) == y_c).drop(p.levels)
             df_k_bin = df_k_bin.explode(agg_off_columns)
 
-            if len(df_k_bin) == 0:
+            if df_k_bin.is_empty():
+                progress_bar.update(1)
                 continue
 
             extent = [x_min, x_max, y_min, y_max]
@@ -522,6 +528,7 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.D
                                      backend="polars")
             df_k_bin = df_k_bin.join(df_bin, on=id_columns, how="inner")
             dfs_k_bin.append(df_k_bin)
+            progress_bar.update(1)
 
     if len(dfs_k_bin) == 0:
         schema = (
