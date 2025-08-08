@@ -495,6 +495,7 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.D
 
     p: LonLatPartitioning = get_bucket_spatial_partitioning(DIR_BUCKET)
 
+    df_id_k = df_id_k.select([COLUMN_LON, COLUMN_LAT] + id_columns + quant_columns)
     df_id_k = df_id_k.explode([COLUMN_LON, COLUMN_LAT] + id_columns)
     df_id_k = df_id_k.rename({col: f"{col}{COLUMN_SUFFIX_QUANT}" for col in quant_columns})
 
@@ -521,6 +522,14 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.D
                                      backend="polars")
             df_k_bin = df_k_bin.join(df_bin, on=id_columns, how="inner")
             dfs_k_bin.append(df_k_bin)
+
+    if len(dfs_k_bin) == 0:
+        schema = (
+                {col: pl.Float32 for col in quant_columns} |
+                {COLUMN_LON: pl.Float32, COLUMN_LAT: pl.Float32, COLUMN_TIME: pl.Datetime} |
+                {VARIABLE_SURFACE_TYPE_INDEX: pl.UInt32, COLUMN_L1C_QUALITY_FLAG: pl.Int32}
+        )
+        return pl.DataFrame(schema=schema)
 
     df_k = pl.concat(dfs_k_bin)
     df_k = transform(df_k, drop=False)

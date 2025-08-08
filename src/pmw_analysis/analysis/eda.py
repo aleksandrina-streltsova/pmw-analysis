@@ -112,9 +112,12 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
     feature_columns = transform(TC_COLUMNS)
     feature_columns = [col for col in feature_columns if col != var]
 
-    df = df_merged[feature_columns +
-                   [VARIABLE_SURFACE_TYPE_INDEX, COLUMN_COUNT, COLUMN_OCCURRENCE] +
-                   ([] if var is None else [var])]
+    columns = (
+            feature_columns +
+            [VARIABLE_SURFACE_TYPE_INDEX, COLUMN_COUNT, COLUMN_OCCURRENCE] +
+            ([] if var is None else [var])
+    )
+    df = df_merged[[col for col in columns if col in df_merged.columns]]
     if k is not None:
         df_k = take_k_sorted(df, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
     else:
@@ -143,12 +146,16 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
     images_path = pathlib.Path("images") / path.parent.name
     images_path.mkdir(parents=True, exist_ok=True)
 
-    groups = [
-        (None, None, None),
-        ("Ocean (Group)", ST_GROUP_OCEAN, "navy"),
-        ("Vegetation (Group)", ST_GROUP_VEGETATION, "darkgreen"),
-        ("Snow (Group)", ST_GROUP_SNOW, "rebeccapurple"),
-    ]
+    if VARIABLE_SURFACE_TYPE_INDEX in df_merged.columns:
+        groups = [
+            (None, None, None),
+            ("Ocean (Group)", ST_GROUP_OCEAN, "navy"),
+            ("Vegetation (Group)", ST_GROUP_VEGETATION, "darkgreen"),
+            ("Snow (Group)", ST_GROUP_SNOW, "rebeccapurple"),
+        ]
+    else:
+        groups = [(None, None, None)]
+
     for group in groups:
         _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins, images_path)
 
