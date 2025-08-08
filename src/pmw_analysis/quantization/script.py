@@ -2,6 +2,7 @@
 Script for performing quantization on data from bucket.
 """
 import logging
+import multiprocessing
 import pathlib
 import pickle
 from collections import defaultdict
@@ -19,14 +20,15 @@ from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COL
     COLUMN_TIME, FLAG_DEBUG, COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID, COLUMN_LON_BIN, COLUMN_LAT_BIN, \
     COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_K, \
     ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
-    DIR_NO_SUN_GLINT, ArgSurfaceType
+    DIR_NO_SUN_GLINT, ArgSurfaceType, COLUMN_BREAKPOINT, COLUMN_CATEGORY
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.processing.filter import filter_by_surface_type
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features, create_occurrence_column
-from pmw_analysis.utils.logging import disable_logging, timing
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_possible_sun_glint
-from pmw_analysis.utils.polars import take_k_sorted
+from pmw_analysis.utils.io import rmtree
+from pmw_analysis.utils.logging import disable_logging, timing, get_memory_usage
+from pmw_analysis.utils.polars import take_k_sorted, weighted_quantiles
 
 UNCERTAINTY_FACTOR_MAX = 20
 
@@ -59,7 +61,7 @@ def _calculate_bounds(x_step: int = X_STEP, y_step: int = Y_STEP) -> Tuple[List[
     return x_bounds, y_bounds
 
 
-def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, factor: float,
+def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, factor: float, clip: bool,
              month: int | None,
              year: int | None,
              agg_off_columns: List[str],
@@ -68,7 +70,7 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, fac
     Quantize fractions of data from bucket.
     """
     unc_dict = {col: factor * unc for col, unc in transform(get_uncertainties_dict(TC_COLUMNS)).items()}
-    range_dict = get_range_dict()
+    range_dict = get_range_dict(clip)
     quant_columns = transform(TC_COLUMNS)
 
     x_bounds, y_bounds = _calculate_bounds()
@@ -365,14 +367,14 @@ def v4_transform(obj, drop: bool = True):
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
-def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable, filter_rows: Callable):
+def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable, filter_rows: Callable, clip: bool):
     """
     Estimate a factor which uncertainty should be multiplied by during quantization.
     Write the estimated factor into a file in the parent directory of the specified path.
     """
     unc_dict = transform(get_uncertainties_dict(TC_COLUMNS))
     # TODO: rewrite to use transform
-    range_dict = get_range_dict()
+    range_dict = get_range_dict(clip)
 
     logging.info("Reading data")
     np.random.seed(566)
@@ -429,58 +431,137 @@ def _find_factor_using_binary_search(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
     return uncertainty_factor_r
 
 
-def _calculate_ranges_for_bucket():
-    n_obs_in_bucket = 2e10
-    n_top_bottom_obs = int(1e-6 * n_obs_in_bucket)
+def get_range_dict(clip: bool) -> Dict[str, float]:
+    """
+    Fetch or calculate a dictionary of ranges and return it.
+    """
+    if clip:
+        ranges_dict = {}
+        hists = get_feature_histograms()
+        for col, hist in hists.items():
+            value_count = hist.select(pl.col(COLUMN_BREAKPOINT).alias(col), pl.col(COLUMN_COUNT))
+            value_count = value_count.filter(pl.col(col).is_not_null())
+            value_count = value_count.sort(col)
 
-    p: LonLatPartitioning = get_bucket_spatial_partitioning(DIR_BUCKET)
-    y_bounds = list(filter(lambda b: abs(b) <= 70, p.y_bounds))
+            q_min, q_max = weighted_quantiles(value_count, [1e-6, 1 - 1e-6], col, COLUMN_COUNT)
+            ranges_dict[f"{col}_min"] = q_min
+            ranges_dict[f"{col}_max"] = q_max
+        print(ranges_dict)
+        return
+    tc_denom = "Tc_19H"
+    diff_columns = ["Tc_23V", "Tc_183V7", "Tc_183V3", "Tc_165V", "Tc_89V", "Tc_37V", "Tc_19V", "Tc_10V"]
+    columns = (
+            TC_COLUMNS +
+            [get_pd_col(freq) for freq in [10, 19, 37, 89, 165]] +
+            [get_ratio_col(tc_num, tc_denom) for tc_num in TC_COLUMNS if tc_num != tc_denom] +
+            [get_diff_col(tc_min, tc_sub) for tc_min, tc_sub in zip(diff_columns, diff_columns[1:])]
+    )
+    range_dict = (
+            {f"{col}_min": -np.inf for col in columns} |
+            {f"{col}_max": np.inf for col in columns}
+    )
+    return range_dict
+
+
+def get_feature_histograms() -> Dict[str, pl.DataFrame]:
+    hists_path = pathlib.Path(DIR_PMW_ANALYSIS) / "feature_histograms.pkl"
+    if hists_path.exists():
+        hists = pickle.load(open(hists_path, "rb"))
+        return hists
+
+    logging.info("Calculating feature histograms.")
+    hists = _calculate_feature_histograms()
+    pickle.dump(hists, open(hists_path, 'wb'))
+    return hists
+
+
+_FILE_SUFFIX_HIST_PARQUET = "_hist.parquet"
+
+
+def _calculate_feature_histograms() -> Dict[str, pl.DataFrame]:
+    multiprocessing.set_start_method("spawn", force=True)
+
+    x_bounds, y_bounds = _calculate_bounds()
 
     tc_denom = "Tc_19H"
     diff_columns = ["Tc_23V", "Tc_183V7", "Tc_183V3", "Tc_165V", "Tc_89V", "Tc_37V", "Tc_19V", "Tc_10V"]
 
+    pd_freqs = [10, 19, 37, 89, 165]
     expressions = (
-            [_get_pd_expr(freq) for freq in [10, 19, 37, 89, 165]] +
+            [_get_pd_expr(freq) for freq in pd_freqs] +
             [_get_ratio_expr(tc_num, tc_denom) for tc_num in TC_COLUMNS if tc_num != tc_denom] +
             [_get_diff_expr(tc_min, tc_sub) for tc_min, tc_sub in zip(diff_columns, diff_columns[1:])]
     )
 
-    dfs_top = defaultdict(lambda: [])
-    dfs_bottom = defaultdict(lambda: [])
+    unc_dict = get_uncertainties_dict(TC_COLUMNS)
+    # update uncertainties dictionary to have pd, ratio and diff
+    for pd_freq in pd_freqs:
+        _add_pd_unc(pd_freq, unc_dict)
+    for tc_num in TC_COLUMNS:
+        if tc_num != tc_denom:
+            _add_ratio_unc(tc_num, tc_denom, unc_dict)
+    for tc_min, tc_sub in zip(diff_columns, diff_columns[1:]):
+        _add_diff_unc(tc_min, tc_sub, unc_dict)
 
-    for x_min, x_max in tqdm(zip(p.x_bounds[:-1], p.x_bounds[1:]), total=len(p.x_centroids)):
-        for y_min, y_max in zip(y_bounds[:-1], y_bounds[1:]):
-            df = gpm.bucket.read(DIR_BUCKET, extent=[x_min, x_max, y_min, y_max], backend="polars",
-                                 columns=TC_COLUMNS + [COLUMN_LON, COLUMN_LAT])
-            df = df.drop([COLUMN_LON, COLUMN_LAT])
-            df = df.with_columns(expressions)
-            for col in df.columns:
-                dfs_top[col].append(df[col].top_k(n_top_bottom_obs))
-                dfs_bottom[col].append(df[col].bottom_k(n_top_bottom_obs))
+    col_to_hists = defaultdict(lambda: [])
 
-    range_dict = {}
+    path = pathlib.Path(DIR_PMW_ANALYSIS) / "hists_tmp"
+    if path.exists():
+        rmtree(path)
+    path.mkdir(parents=True)
 
-    for col, dfs in dfs_top.items():
-        range_dict[f"{col}_max"] = pl.concat(dfs).top_k(n_top_bottom_obs).min()
+    progress_bar = tqdm(total=(len(x_bounds) - 1) * (len(y_bounds) - 1))
+    for idx_x, (x_min, x_max) in enumerate(zip(x_bounds[:-1], x_bounds[1:])):
+        for idx_y, (y_min, y_max) in enumerate(zip(y_bounds[:-1], y_bounds[1:])):
+            idx = idx_x * (len(y_bounds) - 1) + idx_y
 
-    for col, dfs in dfs_bottom.items():
-        range_dict[f"{col}_min"] = pl.concat(dfs).bottom_k(n_top_bottom_obs).max()
+            if FLAG_TEST and idx >= N_DFS_TEST:
+                break
 
-    return range_dict
+            extent = [x_min, x_max, y_min, y_max]
+
+            p = multiprocessing.Process(target=_calculate_feature_histograms_subprocess,
+                                        args=(expressions, unc_dict, path, extent))
+            p.start()
+            p.join()
+            p.close()
+
+            for df_path in path.iterdir():
+                name = df_path.name
+
+                if name.endswith(_FILE_SUFFIX_HIST_PARQUET):
+                    col = name.removesuffix(_FILE_SUFFIX_HIST_PARQUET)
+                    df_hist = pl.read_parquet(df_path)
+                    col_to_hists[col].append(df_hist)
+
+            progress_bar.update(1)
+
+        logging.info(get_memory_usage())
+    rmtree(path)
+
+    hist_dict = {}
+    pl_hist_columns = [COLUMN_BREAKPOINT, COLUMN_CATEGORY]
+    for col, dfs_list in col_to_hists.items():
+        hist_dict[f"{col}"] = pl.concat(dfs_list).group_by(pl_hist_columns).agg(pl.col(COLUMN_COUNT).sum())
+
+    return hist_dict
 
 
-def get_range_dict() -> Dict[str, float]:
-    """
-    Fetch or calculate a dictionary of ranges and return it.
-    """
-    range_dict_path = pathlib.Path(DIR_PMW_ANALYSIS) / "range_dict.pkl"
-    if range_dict_path.exists():
-        range_dict = pickle.load(open(range_dict_path, "rb"))
-        return range_dict
+def _calculate_feature_histograms_subprocess(expressions, unc_dict, path, extent):
+    df: pl.DataFrame = gpm.bucket.read(DIR_BUCKET, extent=extent, backend="polars",
+                                       columns=TC_COLUMNS + [COLUMN_LON, COLUMN_LAT])
+    df = df.drop([COLUMN_LON, COLUMN_LAT])
+    df = df.with_columns(expressions)
 
-    range_dict = _calculate_ranges_for_bucket()
-    pickle.dump(range_dict, open(range_dict_path, 'wb'))
-    return range_dict
+    for col in df.columns:
+        unc = unc_dict[col]
+        v_min = df[col].min()
+        v_max = df[col].max()
+        bins = np.arange(int(np.floor(v_min / unc)), int(np.ceil(v_max / unc)) + 1) * unc
+        df_hist = df[col].hist(bins=bins)
+        df_hist.write_parquet(path / f"{col}{_FILE_SUFFIX_HIST_PARQUET}")
+
+    logging.info(get_memory_usage())
 
 
 def get_newest_k(path: pathlib.Path, transform: Callable, k: int):
@@ -600,6 +681,8 @@ def main():
     parser.add_argument("--surface-type", default=ArgSurfaceType.ALL,
                         type=ArgSurfaceType, action=EnumAction,
                         help="Surface type to process during quantization")
+    parser.add_argument("--clip", type=bool, default=False,
+                        help="If true, data is clipped to the range from range dictionary")
 
     args = parser.parse_args()
 
@@ -612,7 +695,7 @@ def main():
     filter_rows = lambda df: filter_by_surface_type(df, args.surface_type.indexes())
 
     if args.step == ArgQuantizationStep.FACTOR:
-        estimate_uncertainty_factor(path, transform, filter_rows)
+        estimate_uncertainty_factor(path, transform, filter_rows, args.clip)
         return
 
     with open(path / "factor", "r", encoding="utf-8") as file:
@@ -626,7 +709,8 @@ def main():
 
     match args.step:
         case ArgQuantizationStep.QUANTIZE:
-            quantize(path, transform, filter_rows, factor, args.month, args.year, args.agg_off_cols, args.l2_l3_columns)
+            quantize(path, transform, filter_rows, factor, args.clip,
+                     args.month, args.year, args.agg_off_cols, args.l2_l3_columns)
         case ArgQuantizationStep.MERGE:
             merge(path, transform, args.agg_off_cols)
         case ArgQuantizationStep.NEWEST_K:

@@ -24,6 +24,9 @@ COLUMN_OCCURRENCE_TIME = f"occurrence_{COLUMN_TIME}"
 COLUMN_OCCURRENCE_LON = f"occurrence_{COLUMN_LON}"
 COLUMN_OCCURRENCE_LAT = f"occurrence_{COLUMN_LAT}"
 
+COLUMN_BREAKPOINT = "breakpoint"
+COLUMN_CATEGORY = "category"
+
 STRUCT_FIELD_COUNT = "struct_count"
 
 ATTR_NAME = "name"

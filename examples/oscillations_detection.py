@@ -67,7 +67,7 @@ def main():
 
     quant_cols = TC_COLUMNS
     unc_dict = {col: 10.0 * unc for col, unc in get_uncertainties_dict(TC_COLUMNS).items()}
-    range_dict = get_range_dict()
+    range_dict = get_range_dict(clip=False)
 
     # 0. Check signatures that have appeared for the first time later than others
     for point, name in [(point_greenland, name_greenland)]:
