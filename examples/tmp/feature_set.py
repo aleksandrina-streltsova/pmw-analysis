@@ -9,7 +9,8 @@ import polars as pl
 import seaborn as sns
 from feature_engine.selection import DropCorrelatedFeatures
 
-from pmw_analysis.constants import COLUMN_COUNT, TC_COLUMNS, DIR_PMW_ANALYSIS, VARIABLE_SURFACE_TYPE_INDEX
+from pmw_analysis.constants import COLUMN_COUNT, TC_COLUMNS, DIR_PMW_ANALYSIS, VARIABLE_SURFACE_TYPE_INDEX, DIR_IMAGES
+
 
 def main():
     df_path = pathlib.Path(DIR_PMW_ANALYSIS) / "partial" / "final.parquet"
@@ -36,7 +37,7 @@ def main():
     sns.heatmap(corr_mtx, annot=True, ax=ax, xticklabels=feature_columns, yticklabels=feature_columns)
     plt.title("Correlation matrix", fontsize=20)
     plt.tight_layout()
-    plt.savefig(pathlib.Path("images") / "corr_mtx.png")
+    plt.savefig(pathlib.Path(DIR_IMAGES) / "feature_set" / "corr_mtx.png")
     plt.show()
 
     corr_mtx_pd = corr_mtx.to_pandas()

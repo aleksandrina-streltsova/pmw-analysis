@@ -21,12 +21,13 @@ from umap import UMAP
 from umap.umap_ import nearest_neighbors
 
 from pmw_analysis.constants import COLUMN_COUNT, DIR_PMW_ANALYSIS, ST_COLUMNS, ST_GROUP_VEGETATION, \
-    ST_GROUP_OCEAN, ST_GROUP_SNOW, ArgTransform, ArgDimensionalityReduction, ArgClustering
+    ST_GROUP_OCEAN, ST_GROUP_SNOW, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES
 from pmw_analysis.constants import VARIABLE_SURFACE_TYPE_INDEX, COLUMN_OCCURRENCE, TC_COLUMNS
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.copypaste.wpca import WPCA
 from pmw_analysis.processing.filter import filter_by_surface_type
 from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.utils.io import combine_paths, file_to_dir
 from pmw_analysis.utils.logging import timing
 from pmw_analysis.utils.pyplot import plot_histograms2d, HistogramData
 
@@ -258,11 +259,11 @@ def clusterize(df_path: pathlib.Path,
     #### Plotting ####
     use_log_norm = False
 
-    dir_path = pathlib.Path("images") / df_path.parent.name
-    dir_path.mkdir(parents=True, exist_ok=True)
+    images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(df_path), path_rel_base=DIR_PMW_ANALYSIS)
+    images_dir.mkdir(parents=True, exist_ok=True)
 
     # density plot
-    file_path = dir_path / f'{reduction}_{clustering}_count.png'
+    file_path = images_dir / f'{reduction}_{clustering}_count.png'
     hist_data_count = [
         HistogramData(data=features_reduced, weight=df[COLUMN_COUNT], title="All surfaces", alpha=1.0,
                       cmap="rocket_r", color=None, x_label="Component 1", y_label="Component 2")
@@ -271,7 +272,7 @@ def clusterize(df_path: pathlib.Path,
                       bins=N_BINS, use_log_norm=use_log_norm)
 
     # clustering results
-    file_path = dir_path / f'{reduction}_{clustering}.png'
+    file_path = images_dir / f'{reduction}_{clustering}.png'
     hist_datas = [
         HistogramData(data=features_reduced[labels == cluster],
                       weight=df[COLUMN_COUNT].filter(labels == cluster),
@@ -288,7 +289,7 @@ def clusterize(df_path: pathlib.Path,
         pl.Series("x", features_reduced[:, 0]),
         pl.Series("y", features_reduced[:, 1]),
     )
-    file_path = dir_path / f'{reduction}_{clustering}_ref.png'
+    file_path = images_dir / f'{reduction}_{clustering}_ref.png'
     hist_datas_ref = []
     groups = [
         ("Ocean (Group)", ST_GROUP_OCEAN, "navy"),

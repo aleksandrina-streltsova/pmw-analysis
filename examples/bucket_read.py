@@ -144,7 +144,7 @@ p.axes.set_title("Maximum GMI Tb at 10 GHz")
 p.axes.scatter(point_city[0], point_city[1], marker="x", c="black")
 p.axes.scatter(point_outskirts[0], point_outskirts[1], marker="x", c="blue")
 if FLAG_SAVEFIG:
-    plt.savefig(pathlib.Path(DIR_IMAGES) / "point_locations.png")
+    plt.savefig(pathlib.Path(DIR_IMAGES) / "bucket_read" / "point_locations.png")
 plt.show()
 
 # Plot RFI pattern (X band)

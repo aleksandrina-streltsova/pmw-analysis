@@ -8,7 +8,7 @@ import polars as pl
 import numpy as np
 
 from pmw_analysis.constants import DIR_BUCKET, TC_COLUMNS, COLUMN_LON, COLUMN_LAT, DIR_PMW_ANALYSIS, COLUMN_COUNT, \
-    COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, ArgTransform
+    COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, ArgTransform, DIR_IMAGES
 from pmw_analysis.quantization.dataframe_polars import quantize_pmw_features, get_uncertainties_dict
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.polars import weighted_quantiles
@@ -99,7 +99,7 @@ def main():
             fig.supxlabel(_get_xlabel(tc_col))
             fig.supylabel(COLUMN_COUNT)
             fig.tight_layout()
-            fig.savefig(pathlib.Path("images") / f"{transform_arg}_hist_{tc_col}.png")
+            fig.savefig(pathlib.Path(DIR_IMAGES) / "partial_dataset" / f"{transform_arg}_hist_{tc_col}.png")
             fig.show()
 
 

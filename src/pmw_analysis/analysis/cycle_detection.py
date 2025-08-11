@@ -103,7 +103,7 @@ def plot_cycle(time_series: Union[pd.DataFrame, List[pd.DataFrame]], feature_col
             ax.set_title(f"{feature_col} with cycle removed ({name})")
     plt.tight_layout()
     if FLAG_SAVEFIG:
-        plt.savefig(pathlib.Path(DIR_IMAGES) / f"cycle_{feature_cols[-1]}_{suffix}.png")
+        plt.savefig(pathlib.Path(DIR_IMAGES) / "cycle_detection" / f"cycle_{feature_cols[-1]}_{suffix}.png")
     plt.show()
 
 
@@ -136,5 +136,5 @@ def plot_periodogram(time_series: Union[pd.DataFrame, List[pd.DataFrame]], featu
             ax.grid()
     plt.tight_layout()
     if FLAG_SAVEFIG:
-        plt.savefig(pathlib.Path(DIR_IMAGES) / f"periodogram_{feature_cols[-1]}_{suffix}.png")
+        plt.savefig(pathlib.Path(DIR_IMAGES) / "cycle_detection" / f"periodogram_{feature_cols[-1]}_{suffix}.png")
     plt.show()

@@ -18,12 +18,13 @@ from pmw_analysis.constants import (
     COLUMN_COUNT, COLUMN_ACCUM_UNIQUE, COLUMN_ACCUM_ALL, COLUMN_OCCURRENCE_TIME,
     ST_GROUP_SNOW, ST_GROUP_OCEAN, ST_GROUP_VEGETATION,
     VARIABLE_SURFACE_TYPE_INDEX,
-    TC_COLUMNS, ST_COLUMNS, COLUMN_OCCURRENCE, ArgEDA, ArgTransform,
+    TC_COLUMNS, ST_COLUMNS, COLUMN_OCCURRENCE, ArgEDA, ArgTransform, DIR_IMAGES, DIR_HISTS,
 )
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.dataframe_polars import expand_occurrence_column
 from pmw_analysis.processing.filter import filter_by_surface_type
 from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.utils.io import combine_paths, file_to_dir
 from pmw_analysis.utils.polars import get_column_ranges, take_k_sorted
 from pmw_analysis.utils.pyplot import finalize_axis
 
@@ -50,13 +51,15 @@ def plot_point_accumulation(path: pathlib.Path, var: str | None):
     fig, axes = _plot_count_over_time(df_count)
     fig_var = _plot_var_over_time(df, var, axes)
 
-    images_path = pathlib.Path("images") / path.parent.name / "over_time"
-    images_path.mkdir(parents=True, exist_ok=True)
+
+    images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(path),
+                               path_rel_base=DIR_PMW_ANALYSIS) / "over_time"
+    images_dir.mkdir(parents=True, exist_ok=True)
 
     for fig, filename in [(fig, f"count_over_time{"" if var is None else f"_{var}"}.png"),
                           (fig_var, f"var_over_time{"" if var is None else f"_{var}"}.png")]:
         fig.tight_layout()
-        fig.savefig(images_path / filename)
+        fig.savefig(images_dir / filename)
 
 
 def _plot_count_over_time(df_count) -> Tuple[plt.Figure, np.ndarray[plt.Axes]]:
@@ -143,9 +146,6 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
 
     feature_ranges = get_column_ranges(df, feature_columns)
 
-    images_path = pathlib.Path("images") / path.parent.name
-    images_path.mkdir(parents=True, exist_ok=True)
-
     if VARIABLE_SURFACE_TYPE_INDEX in df_merged.columns:
         groups = [
             (None, None, None),
@@ -157,7 +157,7 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
         groups = [(None, None, None)]
 
     for group in groups:
-        _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins, images_path)
+        _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins, path)
 
 
 def _sorted_not_null_unique_values(df: pl.DataFrame, col: str) -> pl.Series:
@@ -203,7 +203,7 @@ def _calculate_reverse_cumsum_for_variable(df, var):
     return df_var_count_desc, df_var_mean_desc, df_var_not_null
 
 
-def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins, images_path):
+def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins, path):
     group_name, surface_types, color = group
 
     if group_name is None:
@@ -231,10 +231,13 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
     else:
         hists_mtx_k = None
 
-    hists_path = pathlib.Path("hists") / images_path.name
-    hists_path.mkdir(parents=True, exist_ok=True)
+    images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(path), path_rel_base=DIR_PMW_ANALYSIS)
+    images_dir.mkdir(parents=True, exist_ok=True)
 
-    hist_path = hists_path / f"{group_name}.npy"
+    hists_dir = combine_paths(path_base=DIR_HISTS, path_rel=file_to_dir(path), path_rel_base=DIR_PMW_ANALYSIS)
+    hists_dir.mkdir(parents=True, exist_ok=True)
+
+    hist_path = hists_dir / f"{group_name}.npy"
     np.save(hist_path, hists_mtx)
 
     if var is None:
@@ -256,10 +259,10 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
 
     if group_name is not None:
         fig.suptitle(group_name + title_suffix, fontsize=30)
-        fig.savefig(images_path / f"count_{group_name.replace("/", "_")}_{len(feature_columns)}{fig_suffix}.png")
+        fig.savefig(images_dir / f"count_{group_name.replace("/", "_")}_{len(feature_columns)}{fig_suffix}.png")
     else:
         fig.suptitle("All Surfaces" + title_suffix, fontsize=30)
-        fig.savefig(images_path / f"count_{group_name}_{len(feature_columns)}{fig_suffix}.png")
+        fig.savefig(images_dir / f"count_{group_name}_{len(feature_columns)}{fig_suffix}.png")
 
 
 def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: np.ndarray | None, n_bins: np.ndarray,
@@ -303,7 +306,7 @@ def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: np
     cb.ax.tick_params(labelsize=15)
 
 
-def _plot_hist(value_count_pd: pd.DataFrame, tc_col, group_name, images_path: pathlib.Path):
+def _plot_hist(value_count_pd: pd.DataFrame, tc_col, group_name, images_dir: pathlib.Path):
     fig, ax = plt.subplots(figsize=(10, 6))
     # TODO: width
     ax.bar(value_count_pd[tc_col], value_count_pd[COLUMN_COUNT], width=0.05)
@@ -312,7 +315,7 @@ def _plot_hist(value_count_pd: pd.DataFrame, tc_col, group_name, images_path: pa
     ax.set_yscale("log")
     ax.set_title(f"{tc_col} {group_name}")
     fig.tight_layout()
-    fig.savefig(images_path / f"{tc_col}_{group_name}.png")
+    fig.savefig(images_dir / f"{tc_col}_{group_name}.png")
 
 
 def _calculate_pairplots_concat_matrix(df: pl.DataFrame, feature_columns: List[str],

@@ -25,7 +25,7 @@ PRODUCT_TYPE = PRODUCT_TYPE_RS
 
 
 def main():
-    images_dir = pathlib.Path(DIR_IMAGES) / "plot_map"
+    images_dir = pathlib.Path(DIR_IMAGES) / "feature_retrieval"
     images_dir.mkdir(parents=True, exist_ok=True)
 
     # Get available products

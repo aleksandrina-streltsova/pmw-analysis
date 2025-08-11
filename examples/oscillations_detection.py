@@ -62,7 +62,7 @@ def main():
     point_greenland = (-47.125, 61.625)
     name_greenland = "Greenland"
 
-    images_dir = pathlib.Path(DIR_IMAGES) / "time_series" / "greenland"
+    images_dir = pathlib.Path(DIR_IMAGES) / "oscillations_detection" / "greenland"
     images_dir.mkdir(parents=True, exist_ok=True)
 
     quant_cols = TC_COLUMNS
@@ -161,7 +161,7 @@ def main():
         corr_mtx = ts[feature_cols].corr().abs()
         sns.heatmap(corr_mtx, annot=True)
         if FLAG_SAVEFIG:
-            plt.savefig(pathlib.Path(DIR_IMAGES) / f"{name}_corr.png")
+            plt.savefig(images_dir / f"{name}_corr.png")
         plt.show()
 
     # 4. Detect cycles.

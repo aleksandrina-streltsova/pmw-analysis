@@ -15,6 +15,7 @@ from pmw_analysis.constants import DIR_PMW_ANALYSIS, TC_COLUMNS, ArgTransform
 from pmw_analysis.processing.filter import filter_by_signature_occurrences_count
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict
 from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.utils.io import combine_paths, file_to_dir
 
 K = 100000
 
@@ -51,11 +52,11 @@ def _calculate_nn_distances(df_all: pl.DataFrame, df_k: pl.DataFrame):
 def main():
     arg_transform = ArgTransform.V4
     arg_surface_type = ArgSurfaceType.OCEAN
-    df_dir_path = pathlib.Path(DIR_PMW_ANALYSIS) / arg_transform.value / arg_surface_type.OCEAN.value / DIR_NO_SUN_GLINT
+    df_k_path = pathlib.Path(DIR_PMW_ANALYSIS) / arg_transform.value / arg_surface_type.OCEAN.value / DIR_NO_SUN_GLINT / FILE_DF_FINAL_K
     transform = get_transformation_function(arg_transform)
     quant_columns = transform(TC_COLUMNS)
 
-    images_dir = pathlib.Path(DIR_IMAGES) / "map" / df_dir_path.name
+    images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(df_k_path), path_rel_base=DIR_PMW_ANALYSIS)
     images_dir.mkdir(parents=True, exist_ok=True)
 
     # lfs = []
@@ -114,7 +115,7 @@ def main():
     #
     # # TODO: replace `unique` with `final` or `newest` for consistency
     # df_quantized = pl.read_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique.parquet")
-    df_k = pl.read_parquet(df_dir_path / FILE_DF_FINAL_K)
+    df_k = pl.read_parquet(df_k_path)
     # df.select(["lon", "lat", "qualityFlag"]).row(distances.argmax())
 
     ###################

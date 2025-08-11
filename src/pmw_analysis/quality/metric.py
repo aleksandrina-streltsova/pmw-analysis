@@ -12,7 +12,7 @@ import polars as pl
 import seaborn as sns
 
 from pmw_analysis.constants import DIR_BUCKET, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, TC_COLUMNS, \
-    DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering
+    DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES
 from pmw_analysis.analysis.clustering import ClusterModel
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.dataframe_polars import _replace_special_missing_values_with_null
@@ -74,7 +74,9 @@ def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str,
     fig.suptitle("Aggregated L2-data")
 
     plt.tight_layout()
-    plt.savefig(pathlib.Path("images") / f"l2_{model_path.name.removesuffix(".pkl")}.png")
+    images_dir = pathlib.Path(DIR_IMAGES) / "metric"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    plt.savefig(images_dir / f"l2_{model_path.name.removesuffix(".pkl")}.png")
     plt.show()
 
     contingency_table = (
@@ -111,7 +113,7 @@ def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str,
         plt.title(f"{value.removeprefix("avg_").capitalize()} Contingency Table")
 
         plt.tight_layout()
-        plt.savefig(pathlib.Path("images") / f"cont_table_{value}_{model_path.name.removesuffix(".pkl")}.png")
+        plt.savefig(images_dir / f"cont_table_{value}_{model_path.name.removesuffix(".pkl")}.png")
         plt.show()
 
     # Calculate average precision and recall

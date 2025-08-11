@@ -15,7 +15,7 @@ import xarray as xr
 
 from pmw_analysis.constants import PRODUCT_1C_GMI_R, PRODUCT_TYPE_RS, VERSION, \
     STORAGE_GES_DISC, VARIABLE_TC, COLUMN_CLUSTER, PRODUCT_2A_GMI, TC_COLUMNS, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, \
-    DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering
+    DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES
 from pmw_analysis.analysis.clustering import ClusterModel
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.script import get_transformation_function
@@ -90,7 +90,7 @@ def plot_map(model_path: pathlib.Path, transform: Callable):
     da_labels = _pl_to_xr(df, coords)
 
     #### Plotting results ####
-    dir_path = pathlib.Path("images") / model_path.parent.name
+    dir_path = pathlib.Path(DIR_IMAGES) / "plot_map" / model_path.parent.name
     dir_path.mkdir(parents=True, exist_ok=True)
 
     if labels.max() + 1 < 5:
