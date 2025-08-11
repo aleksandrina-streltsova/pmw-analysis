@@ -1,8 +1,11 @@
 """
 This module contains utilities for analyzing quantized transformed data.
 """
+import dataclasses
+import logging
 import pathlib
-from typing import List, Callable, Tuple
+import pickle
+from typing import List, Callable, Tuple, Any
 
 import configargparse
 import matplotlib.colors as mcolors
@@ -10,13 +13,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import polars as pl
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, Normalize
 from tqdm import tqdm
 
 from pmw_analysis.constants import (
     DIR_PMW_ANALYSIS,
     COLUMN_COUNT, COLUMN_ACCUM_UNIQUE, COLUMN_ACCUM_ALL, COLUMN_OCCURRENCE_TIME,
-    ST_GROUP_SNOW, ST_GROUP_OCEAN, ST_GROUP_VEGETATION,
+    ST_GROUP_SNOW, ST_GROUP_OCEAN, ST_GROUP_VEGETATION, ST_GROUP_EDGES, ST_GROUP_MISC,
     VARIABLE_SURFACE_TYPE_INDEX,
     TC_COLUMNS, ST_COLUMNS, COLUMN_OCCURRENCE, ArgEDA, ArgTransform, DIR_IMAGES, DIR_HISTS,
 )
@@ -51,15 +54,14 @@ def plot_point_accumulation(path: pathlib.Path, var: str | None):
     fig, axes = _plot_count_over_time(df_count)
     fig_var = _plot_var_over_time(df, var, axes)
 
-
     images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(path),
                                path_rel_base=DIR_PMW_ANALYSIS) / "over_time"
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    for fig, filename in [(fig, f"count_over_time{"" if var is None else f"_{var}"}.png"),
-                          (fig_var, f"var_over_time{"" if var is None else f"_{var}"}.png")]:
+    for fig, file_name in [(fig, f"count_over_time{"" if var is None else f"_{var}"}.png"),
+                           (fig_var, f"var_over_time{"" if var is None else f"_{var}"}.png")]:
         fig.tight_layout()
-        fig.savefig(images_dir / filename)
+        fig.savefig(images_dir / file_name)
 
 
 def _plot_count_over_time(df_count) -> Tuple[plt.Figure, np.ndarray[plt.Axes]]:
@@ -96,7 +98,15 @@ def _plot_var_over_time(df: pl.DataFrame, var: str, axes: np.ndarray[plt.Axes]) 
     return fig_var
 
 
-def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | None):
+@dataclasses.dataclass
+class HistogramsMatrixParameters:
+    n_bins: np.ndarray
+    feature_ranges: np.ndarray
+    var_norm: Any | None = None
+
+
+def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | None,
+            ref_params_dir_path: pathlib.Path | None):
     """
     Generate pairplots of features for a given dataset.
 
@@ -148,16 +158,19 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
 
     if VARIABLE_SURFACE_TYPE_INDEX in df_merged.columns:
         groups = [
-            (None, None, None),
-            ("Ocean (Group)", ST_GROUP_OCEAN, "navy"),
-            ("Vegetation (Group)", ST_GROUP_VEGETATION, "darkgreen"),
-            ("Snow (Group)", ST_GROUP_SNOW, "rebeccapurple"),
-        ]
+                     (None, None, None),
+                     ("Ocean (Group)", ST_GROUP_OCEAN, "navy"),
+                     ("Vegetation (Group)", ST_GROUP_VEGETATION, "darkgreen"),
+                     ("Snow (Group)", ST_GROUP_SNOW, "rebeccapurple"),
+                     ("Edges (Group)", ST_GROUP_EDGES, None),
+                     ("Misc (Group)", ST_GROUP_MISC, None),
+                 ] + [(st.replace("/", "_"), st, None) for st in ST_COLUMNS]
     else:
         groups = [(None, None, None)]
 
     for group in groups:
-        _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins, path)
+        _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins,
+                                    path, ref_params_dir_path)
 
 
 def _sorted_not_null_unique_values(df: pl.DataFrame, col: str) -> pl.Series:
@@ -203,33 +216,68 @@ def _calculate_reverse_cumsum_for_variable(df, var):
     return df_var_count_desc, df_var_mean_desc, df_var_not_null
 
 
-def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins, path):
+def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins,
+                                path, ref_params_dir_path):
     group_name, surface_types, color = group
 
     if group_name is None:
         flag_values = None
-        cmap = "rocket_r"
     else:
         flag_values = [idx + 1 for idx, st in enumerate(ST_COLUMNS) if st in surface_types]
-        cmap = mcolors.LinearSegmentedColormap.from_list("custom_cmap", ["white", color])
+
+    if color is None:
+        cmap = plt.get_cmap("rocket_r")
+    else:
+        cmap = mcolors.LinearSegmentedColormap.from_list("custom_cmap", ["lightyellow", color])
 
     df_to_use = df
     df_to_use_k = df_k
 
     if flag_values is not None:
         df_to_use = filter_by_surface_type(df_to_use, flag_values)
+        if df_to_use.is_empty():
+            logging.info(f"No data for group: {group_name}. Continuing without plotting.")
+            return
 
         if df_to_use_k is not None:
             df_to_use_k = filter_by_surface_type(df_to_use_k, flag_values)
 
     if var is not None:
-        cmap = "YlGnBu"
+        cmap = plt.get_cmap("YlGnBu")
 
-    hists_mtx = _calculate_pairplots_concat_matrix(df_to_use, feature_columns, feature_ranges, n_bins, var)
+    cmap.set_bad(alpha=0)
+
+    if ref_params_dir_path is not None:
+        ref_params_path = ref_params_dir_path / f"{group_name}_{var}.pkl"
+        if not ref_params_path.exists():
+            logging.info(f"Reference parameters file not found for {group_name}. Plotting without reference.")
+            ref_params = None
+        else:
+            ref_params = pickle.load(open(ref_params_path, "rb"))
+    else:
+        ref_params = None
+
+    params = ref_params if ref_params is not None else HistogramsMatrixParameters(n_bins, feature_ranges)
+    hists_mtx, alpha_mtx = _calculate_pairplots_concat_matrix(df_to_use, feature_columns, params, var)
     if df_to_use_k is not None:
-        hists_mtx_k = _calculate_pairplots_concat_matrix(df_to_use_k, feature_columns, feature_ranges, n_bins, var)
+        hists_mtx_k, _ = _calculate_pairplots_concat_matrix(df_to_use_k, feature_columns, params, var=var)
     else:
         hists_mtx_k = None
+
+    hists_mtx_min = np.nanquantile(hists_mtx, 0.01)
+    hists_mtx_max = np.nanquantile(hists_mtx, 0.99)
+
+    if var is None:
+        norm = LogNorm(vmin=hists_mtx_min, vmax=hists_mtx_max)
+    elif ref_params is None:
+        norm = Normalize(vmin=hists_mtx_min, vmax=hists_mtx_max)
+    else:
+        norm = ref_params.var_norm
+
+    if ref_params is None:
+        params_used = HistogramsMatrixParameters(n_bins, feature_ranges, norm)
+    else:
+        params_used = ref_params
 
     images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(path), path_rel_base=DIR_PMW_ANALYSIS)
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -237,18 +285,13 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
     hists_dir = combine_paths(path_base=DIR_HISTS, path_rel=file_to_dir(path), path_rel_base=DIR_PMW_ANALYSIS)
     hists_dir.mkdir(parents=True, exist_ok=True)
 
-    hist_path = hists_dir / f"{group_name}.npy"
-    np.save(hist_path, hists_mtx)
-
-    if var is None:
-        vmin = max(hists_mtx.min(), 1)
-        vmax = max(hists_mtx.max(), 1)
-        norm = LogNorm(vmin=vmin, vmax=vmax)
-    else:
-        norm = None
+    hist_file_name = f"{group_name}_{var}.npy"
+    hists_matx_params_file_name = f"{group_name}_{var}.pkl"
+    np.save(hists_dir / hist_file_name, hists_mtx)
+    pickle.dump(params_used, open(hists_dir / hists_matx_params_file_name, "wb"))
 
     fig, ax = plt.subplots(1, 1, figsize=(4 * len(feature_columns) + 4, 4 * len(feature_columns)))
-    _plot_heatmap_with_varying_cell_sizes(hists_mtx, hists_mtx_k, n_bins, cmap, norm, ax, feature_ranges)
+    _plot_heatmap_with_varying_cell_sizes(hists_mtx, hists_mtx_k, alpha_mtx, params_used, cmap, norm, ax)
 
     _set_histograms2d_label(fig, ax, feature_columns)
     _set_histograms2d_label(fig, ax, feature_columns[::-1], is_y=True)
@@ -265,8 +308,11 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
         fig.savefig(images_dir / f"count_{group_name}_{len(feature_columns)}{fig_suffix}.png")
 
 
-def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: np.ndarray | None, n_bins: np.ndarray,
-                                          cmap, norm, ax: plt.Axes, feature_ranges: np.ndarray):
+def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: np.ndarray | None,
+                                          alpha_mtx: np.ndarray,
+                                          params: HistogramsMatrixParameters,
+                                          cmap, norm, ax: plt.Axes):
+    n_bins, feature_ranges = params.n_bins, params.feature_ranges
     xs = np.ones(n_bins.sum())
     n_bins_cumsum = np.cumsum(n_bins)
     n_bins_cumsum = np.insert(n_bins_cumsum, 0, 0)
@@ -277,11 +323,10 @@ def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: np
     bounds = (xs[:-1] + xs[1:]) / 2
     bounds = np.concatenate([[2 * bounds[0] - bounds[1]], bounds, [2 * bounds[-1] - bounds[-2]]])
 
-    c = ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx[::-1], cmap=cmap, norm=norm)
+    c = ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx[::-1], cmap=cmap, norm=norm, alpha=alpha_mtx[::-1])
     if hists_mtx_k is not None:
         cmap_k = "viridis"
-        ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx_k[::-1],
-                      cmap=cmap_k, alpha=hists_mtx_k[::-1] > 0)
+        ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx_k[::-1], cmap=cmap_k)
 
     ax.vlines(lines[1:-1], ymin=lines[0], ymax=lines[-1], colors='black')
     ax.hlines(lines[1:-1], xmin=lines[0], xmax=lines[-1], colors='black')
@@ -319,40 +364,49 @@ def _plot_hist(value_count_pd: pd.DataFrame, tc_col, group_name, images_dir: pat
 
 
 def _calculate_pairplots_concat_matrix(df: pl.DataFrame, feature_columns: List[str],
-                                       feature_ranges: np.ndarray, n_bins: np.ndarray,
-                                       var: str | None):
-    n_bins_cumsum = np.cumsum(n_bins)
+                                       params: HistogramsMatrixParameters, var: str | None,
+                                       ) -> Tuple[np.ndarray, np.ndarray]:
+    n_bins_cumsum = np.cumsum(params.n_bins)
     n_bins_cumsum = np.insert(n_bins_cumsum, 0, 0)
 
     hists_mtx = np.zeros((n_bins_cumsum[-1], n_bins_cumsum[-1]))
+    alpha_mtx = np.zeros((n_bins_cumsum[-1], n_bins_cumsum[-1]))
     for idx1, tc_col1 in tqdm(enumerate(feature_columns)):
         for idx2, tc_col2 in enumerate(feature_columns[:idx1 + 1]):
+            bins = (params.n_bins[idx1], params.n_bins[idx2])
             cols = [tc_col1] if idx1 == idx2 else [tc_col1, tc_col2]
 
             counts = df.select(cols + [COLUMN_COUNT]).group_by(cols, maintain_order=False).sum()
-            hist_range = (feature_ranges[idx1], feature_ranges[idx2])
+            hist_range = (params.feature_ranges[idx1], params.feature_ranges[idx2])
             hist = np.histogram2d(counts[tc_col1], counts[tc_col2],
-                                  range=hist_range, weights=counts[COLUMN_COUNT],
-                                  bins=(n_bins[idx1], n_bins[idx2]))[0]
+                                  range=hist_range, weights=counts[COLUMN_COUNT], bins=bins)[0]
+            hist[hist == 0] = np.nan
+
+            alpha = np.power(np.log(hist), 0.5)
+            alpha = alpha / np.nanmax(alpha)
+            alpha[np.isnan(alpha)] = 0
 
             if var is not None:
                 counts_var = df.with_columns(pl.col(var).mul(COLUMN_COUNT).alias("tmp")).select(
                     cols + ["tmp"]).group_by(cols, maintain_order=False).sum()
                 hist_var = np.histogram2d(counts_var[tc_col1], counts_var[tc_col2],
                                           range=hist_range, weights=counts_var["tmp"],
-                                          bins=(n_bins[idx1], n_bins[idx2]))[0]
-                hist = hist_var / np.where(np.isclose(hist, 0), 1, hist)
+                                          bins=bins)[0]
+                hist = hist_var / hist
             hist = hist[::-1]
+            alpha = alpha[::-1]
 
             range1 = (n_bins_cumsum[idx1], n_bins_cumsum[idx1 + 1])
             range2 = (n_bins_cumsum[idx2], n_bins_cumsum[idx2 + 1])
 
             hists_mtx[range1[0]: range1[1], range2[0]: range2[1]] = hist
+            alpha_mtx[range1[0]: range1[1], range2[0]: range2[1]] = alpha
             if idx1 == idx2:
                 continue
             hists_mtx[range2[0]: range2[1], range1[0]: range1[1]] = np.flipud(np.transpose(hist))[:, ::-1]
+            alpha_mtx[range2[0]: range2[1], range1[0]: range1[1]] = np.flipud(np.transpose(alpha))[:, ::-1]
 
-    return hists_mtx
+    return hists_mtx, alpha_mtx
 
 
 def _set_histograms2d_label(fig: plt.Figure, ax: plt.Axes, columns: List[str], is_y=False):
@@ -389,9 +443,13 @@ def main():
                         help="Analysis to perform")
     parser.add_argument("--transform", default=ArgTransform.DEFAULT, type=ArgTransform, action=EnumAction,
                         help="Type of transformation performed on data")
-    parser.add_argument("--path", help="Transformed data path if it is different from the default one")
+    parser.add_argument("--path", type=pathlib.Path,
+                        help="Transformed data path if it is different from the default one")
     parser.add_argument("--var", help="Variable to use in analysis")
     parser.add_argument("--k", type=int, help="Number of newest signatures to plot in red")
+    # TODO: naming is inconsistent: `ref_params_path` vs `path_ref_params`
+    parser.add_argument("--ref-params-path", type=pathlib.Path,
+                        help="Path to reference parameters to use for creating pairplots")
 
     args = parser.parse_args()
 
@@ -405,7 +463,7 @@ def main():
         case ArgEDA.ACCUM:
             plot_point_accumulation(path, args.var)
         case ArgEDA.PAIRPLOT:
-            analyze(path, args.var, transform, args.k)
+            analyze(path, args.var, transform, args.k, args.ref_params_path)
         case _:
             raise ValueError(f"{args.analysis.value} is not supported.")
 
