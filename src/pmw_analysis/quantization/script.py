@@ -229,6 +229,10 @@ def _add_diff_unc(tc_min: str, tc_sub: str, unc_dict: Dict[str, float]):
     unc_dict[get_diff_col(tc_min, tc_sub)] = (unc_dict[tc_min] + unc_dict[tc_sub]) / 2
 
 
+def default_transform(obj, _: bool = True):
+    return obj
+
+
 def pd_transform(obj, drop: bool = True):
     """
     Replace vertical polarizations with polarization differences when possible.
@@ -641,7 +645,7 @@ def get_transformation_function(arg_transform: ArgTransform) -> Callable:
     """
     match arg_transform:
         case ArgTransform.DEFAULT:
-            transform = lambda x: x
+            transform = default_transform
         case ArgTransform.PD:
             transform = pd_transform
         case ArgTransform.RATIO:
