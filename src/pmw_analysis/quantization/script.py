@@ -30,6 +30,9 @@ from pmw_analysis.utils.io import rmtree
 from pmw_analysis.utils.logging import disable_logging, timing, get_memory_usage
 from pmw_analysis.utils.polars import take_k_sorted, weighted_quantiles
 
+MERGE_MEMORY_USAGE_FACTOR = 50
+MEMORY_USAGE_LIMIT = 800
+
 UNCERTAINTY_FACTOR_MAX = 20
 
 FLAG_TEST = False
@@ -103,7 +106,7 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, fac
                         columns = None
 
                 lf: pl.DataFrame = gpm.bucket.read(bucket_dir=DIR_BUCKET, columns=columns, extent=extent,
-                                                   backend="polars_lazy")
+                                                   backend="polars")
                 if year is not None:
                     lf = lf.filter(pl.col(COLUMN_TIME).dt.year() == year)
                 if month is not None:
@@ -115,7 +118,8 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, fac
                 lf_result = quantize_pmw_features(lf, quant_columns, unc_dict, range_dict, agg_off_columns)
 
             with timing("Writing"):
-                lf_result.sink_parquet(path_single, engine="streaming")
+                # lf_result.sink_parquet(path_single, engine="streaming")
+                lf_result.write_parquet(path_single)
 
             if FLAG_DEBUG:
                 logging.info(lf.select(pl.len()).collect(engine="streaming").item() /
@@ -131,25 +135,27 @@ def _merge_partial(path: pathlib.Path, path_next: pathlib.Path, path_final: path
 
     idx_merged = 0
     while n_processed < n:
-        # estimated_usage = 0
+        estimated_usage = 0
         lfs = []
         while n_processed < n:
-            lf = pl.scan_parquet(path / f"{n_processed}.parquet")
+            lf = pl.read_parquet(path / f"{n_processed}.parquet")
             # TODO: estimate size of lazy frame
-            # estimated_usage += df.estimated_size("gb") * MERGE_MEMORY_USAGE_FACTOR
-            # if estimated_usage > MEMORY_USAGE_LIMIT:
-            #     logging.info("%s: merging %d data frames", path_next.name, len(dfs))
-            #     break
-            if len(lfs) == 2:
+            estimated_usage += lf.estimated_size("gb") * MERGE_MEMORY_USAGE_FACTOR
+            if estimated_usage > MEMORY_USAGE_LIMIT:
                 logging.info("%s: merging %d data frames", path_next.name, len(lfs))
                 break
+            # if len(lfs) == 4:
+            #     logging.info("%s: merging %d data frames", path_next.name, len(lfs))
+            #     break
             lfs.append(lf)
             n_processed += 1
         lf_merged = merge_quantized_pmw_features(lfs, quant_columns, agg_off_columns)
         if len(lfs) == n:
-            lf_merged.sink_parquet(path_final / "final.parquet", engine="streaming")
+            # lf_merged.sink_parquet(path_final / "final.parquet", engine="streaming")
+            lf_merged.write_parquet(path_final / "final.parquet")
         else:
-            lf_merged.sink_parquet(path_next / f"{idx_merged}.parquet", engine="streaming")
+            # lf_merged.sink_parquet(path_next / f"{idx_merged}.parquet", engine="streaming")
+            lf_merged.write_parquet(path_next / f"{idx_merged}.parquet")
         idx_merged += 1
 
     return idx_merged
@@ -424,11 +430,10 @@ def _find_factor_using_binary_search(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
             with disable_logging():
                 lf_quantized = quantize_pmw_features(lf, quant_columns, curr_uns_dict, range_dict)
 
-            sizes_before.append(lf.select(pl.len()).collect(engine="streaming").item())
-            sizes_after.append(lf_quantized.select(pl.len()).collect(engine="streaming").item())
-        before_to_after_ratio = np.median(np.array(sizes_before) / np.array(sizes_after))
-            sizes_before[i] = lf.select(pl.len()).collect(engine="streaming").item()
-            sizes_after[i] = lf_quantized.select(pl.len()).collect(engine="streaming").item()
+            # sizes_before[i] = lf.select(pl.len()).collect(engine="streaming").item()
+            sizes_before[i] = lf.height
+            # sizes_after[i] = lf_quantized.select(pl.len()).collect(engine="streaming").item()
+            sizes_after[i] = lf_quantized.height
 
         if sizes_before.sum() == 0:
             raise ValueError("All data was filtered out before quantization.")

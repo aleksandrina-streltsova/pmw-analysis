@@ -131,10 +131,11 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
             df_after_expected[2, tc_columns[i]] = 0.5 + i * 1.5
         df_after_expected[2, tc_columns[n_tc - 1]] = (0.5 + (n_tc - 1) * 1.5) * 2
 
-        lf_before = df_before.lazy()
+        # lf_before = df_before.lazy()
+        lf_before = df_before
         lf_after_actual = _round(lf_before, tc_columns, uncertainties, quant_ranges=None)
 
-        df_after_actual = lf_after_actual.collect()
+        df_after_actual = lf_after_actual #.collect()
 
         assert df_after_expected.equals(df_after_actual)
 
@@ -270,8 +271,9 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         expected[0, COLUMN_COUNT] = n - 1
         expected[1, COLUMN_COUNT] = 1
 
-        lf_before = df_before.lazy()
-        actual = _aggregate(lf_before, info).collect()
+        # lf_before = df_before.lazy()
+        lf_before = df_before
+        actual = _aggregate(lf_before, info) #.collect()
         actual = actual.with_columns([
             pl.col(flag_col).list.sort()
             for flag_col in info.flag_columns
@@ -459,8 +461,9 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         for k in range(len(dfs)):
             expected[k + 1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
 
-        lfs = [df.lazy() for df in dfs]
-        actual = merge_quantized_pmw_features(lfs, TC_COLUMNS, agg_off_columns, agg_off_limit=5).collect()
+        # lfs = [df.lazy() for df in dfs]
+        lfs = dfs
+        actual = merge_quantized_pmw_features(lfs, TC_COLUMNS, agg_off_columns, agg_off_limit=5) #.collect()
         actual = actual.with_columns([
             pl.col(flag_col).list.sort()
             for flag_col in info.flag_columns
