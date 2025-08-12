@@ -611,6 +611,9 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.D
     progress_bar = tqdm(total=(len(p.x_bounds) - 1) * (len(p.y_bounds) - 1))
     for x_min, x_max, x_c in zip(p.x_bounds[:-1], p.x_bounds[1:], p.x_centroids):
         for y_min, y_max, y_c in zip(p.y_bounds[:-1], p.y_bounds[1:], p.y_centroids):
+            if FLAG_TEST and len(dfs_k_bin) >= N_DFS_TEST:
+                break
+
             df_k_bin = df_id_k_agg.filter(pl.col(COLUMN_LON_BIN) == x_c, pl.col(COLUMN_LAT_BIN) == y_c).drop(p.levels)
             df_k_bin = df_k_bin.explode(agg_off_columns)
 
