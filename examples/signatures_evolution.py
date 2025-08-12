@@ -9,7 +9,7 @@ import polars as pl
 from tqdm import tqdm
 
 from pmw_analysis.analysis.spatial_visualization import plot_variables_on_map
-from pmw_analysis.constants import COLUMN_LON, COLUMN_LAT, FILE_DF_FINAL_K, \
+from pmw_analysis.constants import COLUMN_LON, COLUMN_LAT, FILE_DF_FINAL_NEWEST, \
     DIR_NO_SUN_GLINT, DIR_IMAGES, ArgSurfaceType
 from pmw_analysis.constants import DIR_PMW_ANALYSIS, TC_COLUMNS, ArgTransform
 from pmw_analysis.processing.filter import filter_by_signature_occurrences_count
@@ -17,10 +17,8 @@ from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.io import combine_paths, file_to_dir
 
-K = 100000
 
-
-def _calculate_nn_distances(df_all: pl.DataFrame, df_k: pl.DataFrame):
+def _calculate_nn_distances(df_all: pl.DataFrame, df_newest: pl.DataFrame):
     transform = get_transformation_function(ArgTransform.DEFAULT)
     quant_columns = transform(TC_COLUMNS)
     unc_dict = {col: 10 * unc for col, unc in transform(get_uncertainties_dict(TC_COLUMNS)).items()}
@@ -32,19 +30,19 @@ def _calculate_nn_distances(df_all: pl.DataFrame, df_k: pl.DataFrame):
         return df_result
 
     array_all = make_discrete(df_all).to_numpy()
-    array_k = make_discrete(df_k).to_numpy()
-    distances = np.zeros(len(array_k))
+    array_newest = make_discrete(df_newest).to_numpy()
+    distances = np.zeros(len(array_newest))
 
     index = faiss.IndexFlatL2(array_all.shape[1])
     index.add(array_all)
 
     # divide query into m parts to estimate total time more easily
     m = 100
-    size = (len(array_k) + m - 1) // m
+    size = (len(array_newest) + m - 1) // m
     for i in tqdm(range(m)):
         l = i * size
-        r = min((i + 1) * size, len(array_k))
-        distances[l: r] = np.sqrt(index.search(r - l, array_k[l: r], k=2)[0][:, 1])
+        r = min((i + 1) * size, len(array_newest))
+        distances[l: r] = np.sqrt(index.search(r - l, array_newest[l: r], k=2)[0][:, 1])
 
     return distances
 
@@ -52,11 +50,11 @@ def _calculate_nn_distances(df_all: pl.DataFrame, df_k: pl.DataFrame):
 def main():
     arg_transform = ArgTransform.V4
     arg_surface_type = ArgSurfaceType.OCEAN
-    df_k_path = pathlib.Path(DIR_PMW_ANALYSIS) / arg_transform.value / arg_surface_type.OCEAN.value / DIR_NO_SUN_GLINT / FILE_DF_FINAL_K
+    df_newest_path = pathlib.Path(DIR_PMW_ANALYSIS) / arg_transform.value / arg_surface_type.OCEAN.value / DIR_NO_SUN_GLINT / FILE_DF_FINAL_NEWEST
     transform = get_transformation_function(arg_transform)
     quant_columns = transform(TC_COLUMNS)
 
-    images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(df_k_path), path_rel_base=DIR_PMW_ANALYSIS)
+    images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(df_newest_path), path_rel_base=DIR_PMW_ANALYSIS)
     images_dir.mkdir(parents=True, exist_ok=True)
 
     # lfs = []
@@ -70,25 +68,25 @@ def main():
     #     dfs.append(df)
     #
     # df_quantized = merge_quantized_pmw_features(dfs, quant_columns)
-    # df_quantized_k = take_k_sorted(df_quantized, COLUMN_OCCURRENCE, K, COLUMN_COUNT, descending=True)
+    # df_quantized_newest = take_k_sorted(df_quantized, COLUMN_OCCURRENCE, K, COLUMN_COUNT, descending=True)
     #
     # # 1. Analyze quantized features' ranges
     # df_quantized_min = df_quantized.select(pl.min(quant_columns))
     # df_quantized_max = df_quantized.select(pl.max(quant_columns))
     #
-    # n_rows_with_extrema = df_quantized_k.filter(pl.any_horizontal([
+    # n_rows_with_extrema = df_quantized_newest.filter(pl.any_horizontal([
     #     (pl.col(quant_col) == df_quantized_min[quant_col].item())
     #     .or_(pl.col(quant_col) == df_quantized_max[quant_col].item())
     #     for quant_col in quant_columns
     # ]))[COLUMN_COUNT].sum()
     #
-    # print(f"{n_rows_with_extrema} / {df_quantized_k[COLUMN_COUNT].sum()} "
+    # print(f"{n_rows_with_extrema} / {df_quantized_newest[COLUMN_COUNT].sum()} "
     #       f"observations contain extrema of some quantized features")
     #
     # # 2. Check the distance to the closest neighbor
-    # distances = _calculate_nn_distances(df_quantized, df_quantized_k)
-    # np.save(pathlib.Path(DIR_PMW_ANALYSIS) / "unique_k_nn_distances.npy", distances)
-    # distances = np.load(pathlib.Path(DIR_PMW_ANALYSIS) / "unique_k_nn_distances.npy")
+    # distances = _calculate_nn_distances(df_quantized, df_quantized_newest)
+    # np.save(pathlib.Path(DIR_PMW_ANALYSIS) / "newest_nn_distances.npy", distances)
+    # distances = np.load(pathlib.Path(DIR_PMW_ANALYSIS) / "newest_nn_distances.npy")
     #
     # print(f"{(distances == 1).sum()} / {len(distances)} = {100 * (distances == 1).sum() / len(distances):.2f}% "
     #       f"observations have their closest neighbor at distance 1")
@@ -99,7 +97,7 @@ def main():
     #     plt.savefig(images_dir / "hist_nn_distances.png")
     # plt.show()
     #
-    # df_struct = pl.struct(df_quantized_k.select(quant_columns))
+    # df_struct = pl.struct(df_quantized_newest.select(quant_columns))
     #
     # dfs_filtered = []
     # for lf in tqdm(lfs):
@@ -111,11 +109,11 @@ def main():
     # df = merge_quantized_pmw_features(dfs_filtered, quant_columns, AGG_OFF_COLUMNS)
     #
     # df_quantized.write_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique.parquet")
-    # df.write_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique_k.parquet")
+    # df.write_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique_newest.parquet")
     #
     # # TODO: replace `unique` with `final` or `newest` for consistency
     # df_quantized = pl.read_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique.parquet")
-    df_k = pl.read_parquet(df_k_path)
+    df_newest = pl.read_parquet(df_newest_path)
     # df.select(["lon", "lat", "qualityFlag"]).row(distances.argmax())
 
     ###################
@@ -130,14 +128,14 @@ def main():
 
     m_occurrences = 1
 
-    df_k_quant_m, quant_columns_with_suffix = filter_by_signature_occurrences_count(df_k, m_occurrences, quant_columns)
+    df_newest_quant_m, quant_columns_with_suffix = filter_by_signature_occurrences_count(df_newest, m_occurrences, quant_columns)
 
-    df_k_m = df_k.join(df_k_quant_m, on=quant_columns_with_suffix, how="inner")
-    df_k_m = df_k_m[quant_columns + [COLUMN_LON, COLUMN_LAT, "L1CqualityFlag", "qualityFlag"]]
-    # df_k_m = df_k_m[[COLUMN_LON, COLUMN_LAT, "L1CqualityFlag"]]
+    df_newest_m = df_newest.join(df_newest_quant_m, on=quant_columns_with_suffix, how="inner")
+    df_newest_m = df_newest_m[quant_columns + [COLUMN_LON, COLUMN_LAT, "L1CqualityFlag", "qualityFlag"]]
+    # df_newest_m = df_newest_m[[COLUMN_LON, COLUMN_LAT, "L1CqualityFlag"]]
 
     m_occurrences_text = "" if m_occurrences == 1 else f"; Signature occurred at least {m_occurrences} times."
-    plot_variables_on_map(df_k_m, arg_transform,
+    plot_variables_on_map(df_newest_m, arg_transform,
                           images_dir=images_dir,
                           title_text_suffix=m_occurrences_text,
                           file_name_suffix=f"_{m_occurrences}")

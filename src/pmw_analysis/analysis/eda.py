@@ -132,9 +132,9 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
     )
     df = df_merged[[col for col in columns if col in df_merged.columns]]
     if k is not None:
-        df_k = take_k_sorted(df, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
+        df_newest = take_k_sorted(df, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
     else:
-        df_k = None
+        df_newest = None
     # df = df[:10000]  # for testing
 
     n_bins = []
@@ -169,7 +169,7 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
         groups = [(None, None, None)]
 
     for group in groups:
-        _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins,
+        _analyze_surface_type_group(df, df_newest, feature_columns, group, var, feature_ranges, n_bins,
                                     path, ref_params_dir_path)
 
 
@@ -216,7 +216,7 @@ def _calculate_reverse_cumsum_for_variable(df, var):
     return df_var_count_desc, df_var_mean_desc, df_var_not_null
 
 
-def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_ranges, n_bins,
+def _analyze_surface_type_group(df, df_newest, feature_columns, group, var, feature_ranges, n_bins,
                                 path, ref_params_dir_path):
     group_name, surface_types, color = group
 
@@ -231,7 +231,7 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
         cmap = mcolors.LinearSegmentedColormap.from_list("custom_cmap", ["lightyellow", color])
 
     df_to_use = df
-    df_to_use_k = df_k
+    df_to_use_newest = df_newest
 
     if flag_values is not None:
         df_to_use = filter_by_surface_type(df_to_use, flag_values)
@@ -239,8 +239,8 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
             logging.info(f"No data for group: {group_name}. Continuing without plotting.")
             return
 
-        if df_to_use_k is not None:
-            df_to_use_k = filter_by_surface_type(df_to_use_k, flag_values)
+        if df_to_use_newest is not None:
+            df_to_use_newest = filter_by_surface_type(df_to_use_newest, flag_values)
 
     if var is not None:
         cmap = plt.get_cmap("YlGnBu")
@@ -259,10 +259,10 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
 
     params = ref_params if ref_params is not None else HistogramsMatrixParameters(n_bins, feature_ranges)
     hists_mtx, alpha_mtx = _calculate_pairplots_concat_matrix(df_to_use, feature_columns, params, var)
-    if df_to_use_k is not None:
-        hists_mtx_k, _ = _calculate_pairplots_concat_matrix(df_to_use_k, feature_columns, params, var=var)
+    if df_to_use_newest is not None:
+        hists_mtx_newest, _ = _calculate_pairplots_concat_matrix(df_to_use_newest, feature_columns, params, var=var)
     else:
-        hists_mtx_k = None
+        hists_mtx_newest = None
 
     hists_mtx_min = np.nanquantile(hists_mtx, 0.01)
     hists_mtx_max = np.nanquantile(hists_mtx, 0.99)
@@ -291,13 +291,13 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
     pickle.dump(params_used, open(hists_dir / hists_matx_params_file_name, "wb"))
 
     fig, ax = plt.subplots(1, 1, figsize=(4 * len(feature_columns) + 4, 4 * len(feature_columns)))
-    _plot_heatmap_with_varying_cell_sizes(hists_mtx, hists_mtx_k, alpha_mtx, params_used, cmap, norm, ax)
+    _plot_heatmap_with_varying_cell_sizes(hists_mtx, hists_mtx_newest, alpha_mtx, params_used, cmap, norm, ax)
 
     _set_histograms2d_label(fig, ax, feature_columns)
     _set_histograms2d_label(fig, ax, feature_columns[::-1], is_y=True)
 
     title_suffix = "" if var is None else f" ({var})"
-    fig_suffix = "" if df_k is None else "_k"
+    fig_suffix = "" if df_newest is None else "_newest"
     fig_suffix += "" if var is None else f"_{var}"
 
     if group_name is not None:
@@ -308,7 +308,7 @@ def _analyze_surface_type_group(df, df_k, feature_columns, group, var, feature_r
         fig.savefig(images_dir / f"count_{group_name}_{len(feature_columns)}{fig_suffix}.png")
 
 
-def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: np.ndarray | None,
+def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_newest: np.ndarray | None,
                                           alpha_mtx: np.ndarray,
                                           params: HistogramsMatrixParameters,
                                           cmap, norm, ax: plt.Axes):
@@ -324,9 +324,9 @@ def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_k: np
     bounds = np.concatenate([[2 * bounds[0] - bounds[1]], bounds, [2 * bounds[-1] - bounds[-2]]])
 
     c = ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx[::-1], cmap=cmap, norm=norm, alpha=alpha_mtx[::-1])
-    if hists_mtx_k is not None:
-        cmap_k = "viridis"
-        ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx_k[::-1], cmap=cmap_k)
+    if hists_mtx_newest is not None:
+        cmap_newest = "viridis"
+        ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx_newest[::-1], cmap=cmap_newest)
 
     ax.vlines(lines[1:-1], ymin=lines[0], ymax=lines[-1], colors='black')
     ax.hlines(lines[1:-1], xmin=lines[0], xmax=lines[-1], colors='black')

@@ -1,6 +1,7 @@
 """
 Script for performing quantization on data from bucket.
 """
+import datetime
 import logging
 import multiprocessing
 import pathlib
@@ -18,13 +19,14 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, COLUMN_COUNT, \
     COLUMN_TIME, FLAG_DEBUG, COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID, COLUMN_LON_BIN, COLUMN_LAT_BIN, \
-    COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_K, \
+    COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_NEWEST, \
     ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
-    DIR_NO_SUN_GLINT, ArgSurfaceType, COLUMN_BREAKPOINT, COLUMN_CATEGORY
+    DIR_NO_SUN_GLINT, ArgSurfaceType, COLUMN_BREAKPOINT, COLUMN_CATEGORY, COLUMN_OCCURRENCE_TIME, \
+    FILE_DF_FINAL_WITHOUT_NEWEST
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.processing.filter import filter_by_surface_type
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
-    merge_quantized_pmw_features, create_occurrence_column
+    merge_quantized_pmw_features, create_occurrence_column, expand_occurrence_column
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_possible_sun_glint
 from pmw_analysis.utils.io import rmtree
 from pmw_analysis.utils.logging import disable_logging, timing, get_memory_usage
@@ -42,8 +44,6 @@ X_STEP = 10
 Y_STEP = 4
 X_STEP_TEST = 1
 Y_STEP_TEST = 1
-
-K = 100000
 
 
 def _calculate_bounds(x_step: int = X_STEP, y_step: int = Y_STEP) -> Tuple[List[float], List[float]]:
@@ -583,56 +583,70 @@ def _calculate_feature_histograms_subprocess(expressions, unc_dict, path, extent
     logging.info(get_memory_usage())
 
 
-def get_newest_k(path: pathlib.Path, transform: Callable, k: int):
+def get_newest(path: pathlib.Path, transform: Callable, k: int | None, timedelta: datetime.timedelta | None):
     df_id = pl.read_parquet(path / FILE_DF_FINAL)
+    df_id = expand_occurrence_column(df_id)
 
     # 1. Get observations before quantization
-    df_id_k = take_k_sorted(df_id, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
-    df_k = _get_bucket_data_for_ids(df_id_k, transform)
+    if timedelta is not None:
+        # TODO: replace with datetime of last observation
+        end_time = df_id.select(pl.col(COLUMN_OCCURRENCE_TIME).max()).item()
+
+        start_time_newest = end_time - timedelta
+        df_id_newest = df_id.filter(pl.col(COLUMN_OCCURRENCE_TIME) >= start_time_newest)
+    else:
+        df_id_newest = take_k_sorted(df_id, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
+
+    df_id_without_newest = df_id.join(df_id_newest, on=COLUMN_OCCURRENCE, how="anti")
+    df_id_without_newest.write_parquet(path / FILE_DF_FINAL_WITHOUT_NEWEST)
+
+    df_newest = _get_bucket_data_for_ids(df_id_newest, transform)
 
     # 2. Add a column to mark sun glint presence
-    df_k = create_occurrence_column(df_k)
-    df_k, sun_glint_column = retrieve_possible_sun_glint(df_k)
+    df_newest = create_occurrence_column(df_newest)
+    df_newest, sun_glint_column = retrieve_possible_sun_glint(df_newest)
 
-    df_k.write_parquet(path / FILE_DF_FINAL_K)
+    df_newest.write_parquet(path / FILE_DF_FINAL_NEWEST)
 
     # 3. Store observations excluding the ones affected by sun glint
     dir_no_sun_glint = path / DIR_NO_SUN_GLINT
     dir_no_sun_glint.mkdir(parents=True, exist_ok=True)
-    df_k_no_sun_glint = df_k.filter(~pl.col(sun_glint_column)).drop(sun_glint_column)
+    df_newest_no_sun_glint = df_newest.filter(~pl.col(sun_glint_column)).drop(sun_glint_column)
 
-    df_k_no_sun_glint.write_parquet(dir_no_sun_glint / "final_k.parquet")
+    df_newest_no_sun_glint.write_parquet(dir_no_sun_glint / FILE_DF_FINAL_NEWEST)
 
 
-def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.DataFrame:
+def _get_bucket_data_for_ids(df_id_newest: pl.DataFrame, transform: Callable) -> pl.DataFrame:
     id_columns = [COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID]
     quant_columns = transform(TC_COLUMNS)
 
     p: LonLatPartitioning = get_bucket_spatial_partitioning(DIR_BUCKET)
 
-    df_id_k = df_id_k.select([COLUMN_LON, COLUMN_LAT] + id_columns + quant_columns)
-    df_id_k = df_id_k.explode([COLUMN_LON, COLUMN_LAT] + id_columns)
-    df_id_k = df_id_k.rename({col: f"{col}{COLUMN_SUFFIX_QUANT}" for col in quant_columns})
+    df_id_newest = df_id_newest.select([COLUMN_LON, COLUMN_LAT] + id_columns + quant_columns)
+    df_id_newest = df_id_newest.explode([COLUMN_LON, COLUMN_LAT] + id_columns)
+    df_id_newest = df_id_newest.rename({col: f"{col}{COLUMN_SUFFIX_QUANT}" for col in quant_columns})
 
-    df_id_k = p.add_labels(df_id_k, x=COLUMN_LON, y=COLUMN_LAT)
-    df_id_k = p.add_centroids(df_id_k, x=COLUMN_LON, y=COLUMN_LAT, x_coord=COLUMN_LON_BIN, y_coord=COLUMN_LAT_BIN)
+    df_id_newest = p.add_labels(df_id_newest, x=COLUMN_LON, y=COLUMN_LAT)
+    df_id_newest = p.add_centroids(df_id_newest, x=COLUMN_LON, y=COLUMN_LAT,
+                                   x_coord=COLUMN_LON_BIN, y_coord=COLUMN_LAT_BIN)
 
-    df_id_k_grouped = df_id_k.group_by(p.levels)
-    agg_off_columns = [col for col in df_id_k.columns if col not in p.levels]
-    df_id_k_agg = df_id_k_grouped.agg(pl.col(agg_off_columns)).sort(p.levels)
+    df_id_newest_grouped = df_id_newest.group_by(p.levels)
+    agg_off_columns = [col for col in df_id_newest.columns if col not in p.levels]
+    df_id_newest_agg = df_id_newest_grouped.agg(pl.col(agg_off_columns)).sort(p.levels)
 
-    dfs_k_bin = []
+    dfs_newest_bin = []
 
     progress_bar = tqdm(total=(len(p.x_bounds) - 1) * (len(p.y_bounds) - 1))
     for x_min, x_max, x_c in zip(p.x_bounds[:-1], p.x_bounds[1:], p.x_centroids):
         for y_min, y_max, y_c in zip(p.y_bounds[:-1], p.y_bounds[1:], p.y_centroids):
-            if FLAG_TEST and len(dfs_k_bin) >= N_DFS_TEST:
+            if FLAG_TEST and len(dfs_newest_bin) >= N_DFS_TEST:
                 break
 
-            df_k_bin = df_id_k_agg.filter(pl.col(COLUMN_LON_BIN) == x_c, pl.col(COLUMN_LAT_BIN) == y_c).drop(p.levels)
-            df_k_bin = df_k_bin.explode(agg_off_columns)
+            df_newest_bin = df_id_newest_agg.filter(pl.col(COLUMN_LON_BIN) == x_c, pl.col(COLUMN_LAT_BIN) == y_c)
+            df_newest_bin = df_newest_bin.drop(p.levels)
+            df_newest_bin = df_newest_bin.explode(agg_off_columns)
 
-            if df_k_bin.is_empty():
+            if df_newest_bin.is_empty():
                 progress_bar.update(1)
                 continue
 
@@ -640,11 +654,11 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.D
             df_bin = gpm.bucket.read(bucket_dir=DIR_BUCKET,
                                      extent=extent,
                                      backend="polars")
-            df_k_bin = df_k_bin.join(df_bin, on=id_columns, how="inner")
-            dfs_k_bin.append(df_k_bin)
+            df_newest_bin = df_newest_bin.join(df_bin, on=id_columns, how="inner")
+            dfs_newest_bin.append(df_newest_bin)
             progress_bar.update(1)
 
-    if len(dfs_k_bin) == 0:
+    if len(dfs_newest_bin) == 0:
         schema = (
                 {col: pl.Float32 for col in quant_columns} |
                 {COLUMN_LON: pl.Float32, COLUMN_LAT: pl.Float32, COLUMN_TIME: pl.Datetime} |
@@ -652,9 +666,9 @@ def _get_bucket_data_for_ids(df_id_k: pl.DataFrame, transform: Callable) -> pl.D
         )
         return pl.DataFrame(schema=schema)
 
-    df_k = pl.concat(dfs_k_bin)
-    df_k = transform(df_k, drop=False)
-    return df_k
+    df_newest = pl.concat(dfs_newest_bin)
+    df_newest = transform(df_newest, drop=False)
+    return df_newest
 
 
 def get_transformation_function(arg_transform: ArgTransform) -> Callable:
@@ -705,6 +719,10 @@ def main():
                         help="Surface type to process during quantization")
     parser.add_argument("--clip", type=bool, default=False,
                         help="If true, data is clipped to the range from range dictionary")
+    parser.add_argument("--newest-k", type=int,
+                        help="The number of the newest signatures to use when acquiring observations")
+    parser.add_argument("--newest-timedelta", type=datetime.timedelta,
+                        help="The time period as a timedelta for acquiring observations based on the newest signatures")
 
     args = parser.parse_args()
 
@@ -735,8 +753,12 @@ def main():
                      args.month, args.year, args.agg_off_cols, args.l2_l3_columns)
         case ArgQuantizationStep.MERGE:
             merge(path, transform, args.agg_off_cols)
-        case ArgQuantizationStep.NEWEST_K:
-            get_newest_k(path, transform, K)
+        case ArgQuantizationStep.NEWEST:
+            if args.newest_k is None and args.newest_timedelta is None:
+                raise ValueError("Either --newest-k or --newest-timedelta must be specified.")
+            if args.newest_k is not None and args.newest_timedelta is not None:
+                raise ValueError("Only one of --newest-k or --newest-timedelta can be specified.")
+            get_newest(path, transform, args.newest_k, args.newest_timedelta)
         case _:
             raise ValueError(f"{args.step.value} is not supported.")
 

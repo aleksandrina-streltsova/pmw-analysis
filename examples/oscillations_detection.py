@@ -87,7 +87,7 @@ def main():
 
     # 1. Read and process time series.
     ts_list = []
-    ts_unique_k_list = []
+    ts_newest_list = []
     l2_cols = ["probabilityOfPrecip"]
 
     aggregate_flag = False
@@ -104,11 +104,11 @@ def main():
                             as_index=False).agg("mean")
         else:
             # 1.1. Leave only the signatures that have appeared for the first time later than others
-            df_unique_k = pl.read_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique_k.parquet").select(quant_cols)
+            df_newest = pl.read_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "newest.parquet").select(quant_cols)
 
-            is_in = _is_in_quantized(ts, df_unique_k, quant_cols, unc_dict, range_dict)
-            ts_unique_k = ts.reset_index(drop=True)[is_in]
-            ts_unique_k_list.append(ts_unique_k)
+            is_in = _is_in_quantized(ts, df_newest, quant_cols, unc_dict, range_dict)
+            ts_newest = ts.reset_index(drop=True)[is_in]
+            ts_newest_list.append(ts_newest)
 
         ts = retrieve_PD(ts)
         ts_list.append(ts)
@@ -117,7 +117,7 @@ def main():
     feature_cols += [f"PD_{freq}" for freq in freqs_pd]
 
     # 1.2. Get unique point time coordinates.
-    # ts_unique_k[ts_unique_k["Tc_19H"] == ts_unique_k["Tc_19H"].min()][[COLUMN_LON, COLUMN_LAT, COLUMN_TIME]]
+    # ts_newest[ts_newest["Tc_19H"] == ts_newest["Tc_19H"].min()][[COLUMN_LON, COLUMN_LAT, COLUMN_TIME]]
     # dt = datetime.datetime(year=2021, month=10, day=19, hour=4, minute=6, second=27)
     # ts.iloc[(ts["time"] - dt).abs().argmin()]
     # ts["time_dist"] = (ts[COLUMN_TIME] - dt).abs()
@@ -141,7 +141,7 @@ def main():
                 plt.sca(axes[idx_row][idx_col])
                 scatter_na(x=ts[COLUMN_TIME], y=ts[feature_col], c=ts[color_col], color_label=color_col)
 
-                ts_unique = ts_unique_k_list[idx_col]
+                ts_unique = ts_newest_list[idx_col]
                 plt.scatter(ts_unique[COLUMN_TIME], ts_unique[feature_col], c="orange", s=1, zorder=1)
 
                 plt.plot(ts[COLUMN_TIME], ts[feature_col], linestyle="--", linewidth=0.5, alpha=0.2)

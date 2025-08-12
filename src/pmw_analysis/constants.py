@@ -111,7 +111,8 @@ EXTENT_GREENLAND = [-73, -11, 59, 83]
 AGG_OFF_LIMIT = 100
 
 FILE_DF_FINAL = "final.parquet"
-FILE_DF_FINAL_K = "final_k.parquet"
+FILE_DF_FINAL_NEWEST = "final_newest.parquet"
+FILE_DF_FINAL_WITHOUT_NEWEST = "final_without_newest.parquet"
 
 
 class ArgTransform(enum.Enum):
@@ -149,7 +150,7 @@ class ArgQuantizationStep(enum.Enum):
     FACTOR = "factor"
     QUANTIZE = "quantize"
     MERGE = "merge"
-    NEWEST_K = "newest-k"
+    NEWEST = "newest"
 
 
 class ArgSurfaceType(enum.Enum):
