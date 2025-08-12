@@ -383,12 +383,10 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable, filter_
     logging.info("Reading data")
     np.random.seed(566)
 
-    p: LonLatPartitioning = get_bucket_spatial_partitioning(DIR_BUCKET)
-    x_bounds = p.x_bounds
-    y_bounds = list(filter(lambda b: abs(b) <= 70, p.y_bounds))
+    x_bounds, y_bounds = _calculate_bounds(x_step=1, y_step=1)
 
     lfs = []
-    k = 15
+    k = 30
     for idx_x, idx_y in tqdm(zip(np.random.choice(np.arange(len(x_bounds) - 1), k),
                                  np.random.choice(np.arange(len(y_bounds) - 1), k)), total=k):
         extent = [x_bounds[idx_x], x_bounds[idx_x + 1], y_bounds[idx_y], y_bounds[idx_y + 1]]
@@ -412,14 +410,16 @@ def _find_factor_using_binary_search(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
                                      uncertainty_dict: Dict[str, float], range_dict: Dict[str, float]):
     uncertainty_factor_l = 0
     uncertainty_factor_r = UNCERTAINTY_FACTOR_MAX
+
+    n = len(lfs)
     while uncertainty_factor_r > uncertainty_factor_l + 1:
         factor = (uncertainty_factor_l + uncertainty_factor_r + 1) // 2
         logging.info("Checking uncertainty factor %d", factor)
 
-        sizes_before = []
-        sizes_after = []
+        sizes_before = np.zeros(n)
+        sizes_after = np.zeros(n)
 
-        for lf in tqdm(lfs):
+        for i, lf in tqdm(enumerate(lfs)):
             curr_uns_dict = {k: factor * v for k, v in uncertainty_dict.items()}
             with disable_logging():
                 lf_quantized = quantize_pmw_features(lf, quant_columns, curr_uns_dict, range_dict)
@@ -427,8 +427,18 @@ def _find_factor_using_binary_search(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
             sizes_before.append(lf.select(pl.len()).collect(engine="streaming").item())
             sizes_after.append(lf_quantized.select(pl.len()).collect(engine="streaming").item())
         before_to_after_ratio = np.median(np.array(sizes_before) / np.array(sizes_after))
+            sizes_before[i] = lf.select(pl.len()).collect(engine="streaming").item()
+            sizes_after[i] = lf_quantized.select(pl.len()).collect(engine="streaming").item()
+
+        if sizes_before.sum() == 0:
+            raise ValueError("All data was filtered out before quantization.")
+
+        mask_non_empty = sizes_before > 0
+        sizes_before = sizes_before[mask_non_empty]
+        sizes_after = sizes_after[mask_non_empty]
+        before_to_after_ratio = np.median(sizes_before / sizes_after)
         logging.info("before/after: %.2f", before_to_after_ratio)
-        if before_to_after_ratio < 100:
+        if before_to_after_ratio < 40:
             uncertainty_factor_l = factor
         else:
             uncertainty_factor_r = factor
