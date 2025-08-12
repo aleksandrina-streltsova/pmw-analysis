@@ -31,12 +31,12 @@ def filter_by_surface_type(df, flag_value: int | List[int]) -> pl.DataFrame:
     else:
         flag_values = set(flag_value)
 
-    if isinstance(df[VARIABLE_SURFACE_TYPE_INDEX], pl.datatypes.List):
+    if df[VARIABLE_SURFACE_TYPE_INDEX].dtype == pl.List:
         df_result = df.with_columns(
             pl.col(VARIABLE_SURFACE_TYPE_INDEX).list.eval(
                 pl.element().filter(pl.element().struct.field(VARIABLE_SURFACE_TYPE_INDEX).is_in(flag_values))
             ).list.first().struct.field(STRUCT_FIELD_COUNT).alias(COLUMN_COUNT)
-        )
+        ).filter(pl.col(COLUMN_COUNT) > 0)
     else:
         df_result = df.filter(pl.col(VARIABLE_SURFACE_TYPE_INDEX).is_in(flag_values))
     return df_result
