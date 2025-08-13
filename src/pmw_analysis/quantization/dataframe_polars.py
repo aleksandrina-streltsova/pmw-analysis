@@ -463,6 +463,9 @@ def merge_quantized_features(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
     """
     Merge quantized features from a collection of Polars data structures using specified quantization configurations.
     """
+
+    # TODO: FIX
+    lfs = [lf for lf in lfs if not lf.is_empty()]
     lf = pl.concat(lfs, how="diagonal")
     if lf.is_empty():
         return lf

@@ -25,7 +25,7 @@ from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COL
     FILE_DF_FINAL_WITHOUT_NEWEST, COLUMN_SUN_GLINT_ANGLE_HF, COLUMN_SUN_GLINT_ANGLE_LF, SUN_GLINT_PRESENCE_RANGE, \
     QUALITY_FLAG_NON_NORMAL_STATUS_MODE
 from pmw_analysis.copypaste.utils.cli import EnumAction
-from pmw_analysis.processing.filter import filter_by_flag_values, filter_by_sun_glint_angle, filter_by_value_range
+from pmw_analysis.processing.filter import filter_by_flag_values, filter_by_value_range
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features, create_occurrence_column, expand_occurrence_column
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_possible_sun_glint
