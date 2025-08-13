@@ -13,7 +13,7 @@ from gpm.visualization.plot import _sanitize_cartopy_plot_kwargs
 from pycolorbar import get_plot_kwargs
 
 from pmw_analysis.constants import TC_COLUMNS, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, FLAG_SAVEFIG, COLUMN_LON, \
-    COLUMN_LAT, COLUMN_LON_BIN, COLUMN_LAT_BIN, ArgTransform
+    COLUMN_LAT, COLUMN_LON_BIN, COLUMN_LAT_BIN, ArgTransform, COLUMN_SUN_GLINT_ANGLE_HF, COLUMN_SUN_GLINT_ANGLE_LF
 from pmw_analysis.quantization.script import get_transformation_function
 
 
@@ -28,7 +28,7 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
         'L1CqualityFlag',
         'qualityFlag',
     ]
-    sun_glint_angle_columns = ["sunGlintAngle_LF", "sunGlintAngle_HF"]
+    sun_glint_angle_columns = [COLUMN_SUN_GLINT_ANGLE_LF, COLUMN_SUN_GLINT_ANGLE_HF]
     known_columns = (feature_columns + quality_flag_columns + sun_glint_angle_columns +
                      [COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX])
     columns_to_plot = [col for col in df.columns if col not in [COLUMN_LON, COLUMN_LAT]]

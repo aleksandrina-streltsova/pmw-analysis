@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME, COLUMN_LON, COLUMN_LAT, \
     COLUMN_OCCURRENCE, COLUMN_OCCURRENCE_TIME, COLUMN_OCCURRENCE_LON, COLUMN_OCCURRENCE_LAT, \
-    FLAG_DEBUG, AGG_OFF_LIMIT
+    FLAG_DEBUG, AGG_OFF_LIMIT, COLUMN_SUN_GLINT_ANGLE_LF, COLUMN_SUN_GLINT_ANGLE_HF
 
 
 #### COLUMNS ####
@@ -57,8 +57,8 @@ def _get_periodic_columns(columns: Sequence[str]) -> Sequence[str]:
 
 def _get_special_columns(columns: Sequence[str]) -> Sequence[str]:
     special_columns = [
-        'sunGlintAngle_LF',  # mean, [0, 127], -88, -99
-        'sunGlintAngle_HF',  # mean, [0, 127] -88, -99
+        COLUMN_SUN_GLINT_ANGLE_LF,  # mean, [0, 127], -88, -99
+        COLUMN_SUN_GLINT_ANGLE_HF,  # mean, [0, 127] -88, -99
     ]
     return [col for col in columns if col in special_columns]
 
@@ -73,8 +73,8 @@ def _get_periodic_dict() -> Dict[str, float]:
 
 def _get_special_dict() -> Dict[str, Tuple[float, str]]:
     return {
-        'sunGlintAngle_LF': (-88, "below_horizon"),
-        'sunGlintAngle_HF': (-88, "below_horizon"),
+        COLUMN_SUN_GLINT_ANGLE_LF: (-88, "below_horizon"),
+        COLUMN_SUN_GLINT_ANGLE_HF: (-88, "below_horizon"),
     }
 
 

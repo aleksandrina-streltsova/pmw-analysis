@@ -22,9 +22,10 @@ from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COL
     COLUMN_SUFFIX_QUANT, COLUMN_OCCURRENCE, FILE_DF_FINAL, FILE_DF_FINAL_NEWEST, \
     ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
     DIR_NO_SUN_GLINT, ArgSurfaceType, COLUMN_BREAKPOINT, COLUMN_CATEGORY, COLUMN_OCCURRENCE_TIME, \
-    FILE_DF_FINAL_WITHOUT_NEWEST
+    FILE_DF_FINAL_WITHOUT_NEWEST, COLUMN_SUN_GLINT_ANGLE_HF, COLUMN_SUN_GLINT_ANGLE_LF, SUN_GLINT_PRESENCE_RANGE, \
+    QUALITY_FLAG_NON_NORMAL_STATUS_MODE
 from pmw_analysis.copypaste.utils.cli import EnumAction
-from pmw_analysis.processing.filter import filter_by_flag
+from pmw_analysis.processing.filter import filter_by_flag_values, filter_by_sun_glint_angle, filter_by_value_range
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features, create_occurrence_column, expand_occurrence_column
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_possible_sun_glint
@@ -397,6 +398,7 @@ def estimate_uncertainty_factor(path: pathlib.Path, transform: Callable, filter_
                                  np.random.choice(np.arange(len(y_bounds) - 1), k)), total=k):
         extent = [x_bounds[idx_x], x_bounds[idx_x + 1], y_bounds[idx_y], y_bounds[idx_y + 1]]
         columns = TC_COLUMNS + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX]
+        columns += [COLUMN_L1C_QUALITY_FLAG, COLUMN_SUN_GLINT_ANGLE_LF, COLUMN_SUN_GLINT_ANGLE_HF]
         lf: pl.LazyFrame = gpm.bucket.read(DIR_BUCKET, extent, columns=columns, backend="polars")
         lfs.append(transform(filter_rows(lf)))
 
@@ -671,6 +673,24 @@ def _get_bucket_data_for_ids(df_id_newest: pl.DataFrame, transform: Callable) ->
     return df_newest
 
 
+def _filter_rows(df, filter_by_quality: bool, arg_surface_type: ArgSurfaceType):
+    if arg_surface_type == ArgSurfaceType.ALL:
+        df = df
+    else:
+        df = filter_by_flag_values(df, VARIABLE_SURFACE_TYPE_INDEX, arg_surface_type.indexes())
+
+    if filter_by_quality:
+        df = filter_by_value_range(df, COLUMN_SUN_GLINT_ANGLE_LF, SUN_GLINT_PRESENCE_RANGE, filter_out=True)
+        df = filter_by_value_range(df, COLUMN_SUN_GLINT_ANGLE_HF, SUN_GLINT_PRESENCE_RANGE, filter_out=True)
+
+        flag_values = [
+            QUALITY_FLAG_NON_NORMAL_STATUS_MODE,
+        ]
+        df = filter_by_flag_values(df, COLUMN_L1C_QUALITY_FLAG, flag_values, filter_out=True)
+
+    return df
+
+
 def get_transformation_function(arg_transform: ArgTransform) -> Callable:
     """
     Return a transformation function based on the specified argument.
@@ -723,6 +743,8 @@ def main():
                         help="The number of the newest signatures to use when acquiring observations")
     parser.add_argument("--newest-timedelta", type=datetime.timedelta,
                         help="The time period as a timedelta for acquiring observations based on the newest signatures")
+    parser.add_argument("--filter-by-quality", type=bool, default=True,
+                        help="If true, data is filtered by sun glint angle and quality flags")
 
     args = parser.parse_args()
 
@@ -732,7 +754,7 @@ def main():
     path.mkdir(parents=True, exist_ok=True)
 
     transform = get_transformation_function(args.transform)
-    filter_rows = lambda df: filter_by_flag(df, VARIABLE_SURFACE_TYPE_INDEX, args.surface_type.indexes())
+    filter_rows = lambda df: _filter_rows(df, args.filter_by_quality, args.surface_type)
 
     if args.step == ArgQuantizationStep.FACTOR:
         estimate_uncertainty_factor(path, transform, filter_rows, args.clip)
