@@ -23,7 +23,7 @@ from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COL
     ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
     DIR_NO_SUN_GLINT, ArgSurfaceType, COLUMN_BREAKPOINT, COLUMN_CATEGORY, COLUMN_OCCURRENCE_TIME, \
     FILE_DF_FINAL_WITHOUT_NEWEST, COLUMN_SUN_GLINT_ANGLE_HF, COLUMN_SUN_GLINT_ANGLE_LF, SUN_GLINT_PRESENCE_RANGE, \
-    QUALITY_FLAG_NON_NORMAL_STATUS_MODE
+    QUALITY_FLAG_NON_NORMAL_STATUS_MODE, COLUMN_TEMP_2M_INDEX
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.processing.filter import filter_by_flag_values, filter_by_value_range
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
@@ -103,6 +103,7 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, fac
                         columns = required_columns
                         columns.add(VARIABLE_SURFACE_TYPE_INDEX)
                         columns.add(COLUMN_L1C_QUALITY_FLAG)
+                        columns.add(COLUMN_TEMP_2M_INDEX)
                     case ArgQuantizationL2L3Columns.ALL:
                         columns = None
 
