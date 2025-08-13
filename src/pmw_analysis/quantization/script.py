@@ -24,7 +24,7 @@ from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COL
     DIR_NO_SUN_GLINT, ArgSurfaceType, COLUMN_BREAKPOINT, COLUMN_CATEGORY, COLUMN_OCCURRENCE_TIME, \
     FILE_DF_FINAL_WITHOUT_NEWEST
 from pmw_analysis.copypaste.utils.cli import EnumAction
-from pmw_analysis.processing.filter import filter_by_surface_type
+from pmw_analysis.processing.filter import filter_by_flag
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
     merge_quantized_pmw_features, create_occurrence_column, expand_occurrence_column
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_possible_sun_glint
@@ -732,7 +732,7 @@ def main():
     path.mkdir(parents=True, exist_ok=True)
 
     transform = get_transformation_function(args.transform)
-    filter_rows = lambda df: filter_by_surface_type(df, args.surface_type.indexes())
+    filter_rows = lambda df: filter_by_flag(df, VARIABLE_SURFACE_TYPE_INDEX, args.surface_type.indexes())
 
     if args.step == ArgQuantizationStep.FACTOR:
         estimate_uncertainty_factor(path, transform, filter_rows, args.clip)

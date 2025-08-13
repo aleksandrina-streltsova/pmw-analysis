@@ -25,7 +25,7 @@ from pmw_analysis.constants import (
 )
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.quantization.dataframe_polars import expand_occurrence_column
-from pmw_analysis.processing.filter import filter_by_surface_type
+from pmw_analysis.processing.filter import filter_by_flag
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.io import combine_paths, file_to_dir
 from pmw_analysis.utils.polars import get_column_ranges, take_k_sorted
@@ -234,13 +234,13 @@ def _analyze_surface_type_group(df, df_newest, feature_columns, group, var, feat
     df_to_use_newest = df_newest
 
     if flag_values is not None:
-        df_to_use = filter_by_surface_type(df_to_use, flag_values)
+        df_to_use = filter_by_flag(df_to_use, VARIABLE_SURFACE_TYPE_INDEX, flag_values)
         if df_to_use.is_empty():
             logging.info(f"No data for group: {group_name}. Continuing without plotting.")
             return
 
         if df_to_use_newest is not None:
-            df_to_use_newest = filter_by_surface_type(df_to_use_newest, flag_values)
+            df_to_use_newest = filter_by_flag(df_to_use_newest, VARIABLE_SURFACE_TYPE_INDEX, flag_values)
 
     if var is not None:
         cmap = plt.get_cmap("YlGnBu")
