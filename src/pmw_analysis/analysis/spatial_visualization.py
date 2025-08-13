@@ -13,7 +13,9 @@ from gpm.visualization.plot import _sanitize_cartopy_plot_kwargs
 from pycolorbar import get_plot_kwargs
 
 from pmw_analysis.constants import TC_COLUMNS, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, FLAG_SAVEFIG, COLUMN_LON, \
-    COLUMN_LAT, COLUMN_LON_BIN, COLUMN_LAT_BIN, ArgTransform, COLUMN_SUN_GLINT_ANGLE_HF, COLUMN_SUN_GLINT_ANGLE_LF
+    COLUMN_LAT, COLUMN_LON_BIN, COLUMN_LAT_BIN, ArgTransform, COLUMN_SUN_GLINT_ANGLE_HF, COLUMN_SUN_GLINT_ANGLE_LF, \
+    Stats
+from pmw_analysis.quantization.dataframe_polars import get_agg_column
 from pmw_analysis.quantization.script import get_transformation_function
 
 
@@ -42,11 +44,10 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
                                              x=COLUMN_LON, y=COLUMN_LAT,
                                              x_coord=COLUMN_LON_BIN, y_coord=COLUMN_LAT_BIN)
 
-    get_mode_col = lambda col: f"{col}_mode"
-
     expressions = (
             {col: [pl.col(col).mean()] for col in feature_columns} |
-            {col: [pl.col(col), pl.col(col).mode().first().alias(get_mode_col(col))] for col in quality_flag_columns} |
+            {col: [pl.col(col), pl.col(col).mode().first().alias(get_agg_column(col, Stats.MODE))]
+             for col in quality_flag_columns} |
             {COLUMN_COUNT: [pl.col(feature_columns[0]).count().alias(COLUMN_COUNT)]} |
             {VARIABLE_SURFACE_TYPE_INDEX: [pl.col(VARIABLE_SURFACE_TYPE_INDEX).mode().first()]} |
             {col: [pl.col(col).eq(-88).sum() / pl.len()] for col in sun_glint_angle_columns}
@@ -75,9 +76,13 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
     df_agg = grouped_df.agg([expr for col in columns_to_plot for expr in expressions[col]])
 
     df_agg = df_agg.with_columns([
-        pl.when(pl.col(flag_col).list.contains(0)).then(0).otherwise(pl.col(get_mode_col(flag_col))).alias(flag_col)
+        pl
+        .when(pl.col(flag_col).list.contains(0))
+        .then(0)
+        .otherwise(pl.col(get_agg_column(flag_col, Stats.MODE)))
+        .alias(flag_col)
         for flag_col in quality_flag_columns if flag_col in columns_to_plot
-    ]).drop([get_mode_col(flag_col) for flag_col in quality_flag_columns if flag_col in columns_to_plot])
+    ]).drop([get_agg_column(flag_col, Stats.MODE) for flag_col in quality_flag_columns if flag_col in columns_to_plot])
 
     ds = partitioning.to_xarray(df_agg, spatial_coords=("lon_bin", "lat_bin"))
     ds = ds.rename({"lon_bin": "longitude", "lat_bin": "latitude"})

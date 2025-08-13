@@ -11,19 +11,18 @@ import pandas as pd
 import polars as pl
 import seaborn as sns
 
+from pmw_analysis.analysis.cycle_detection import detect_cycle, plot_cycle, plot_periodogram
 from pmw_analysis.constants import (
     COLUMN_TIME,
     COLUMN_TIME_FRACTION,
-    COLUMN_OCCURRENCE_TIME,
     ATTR_NAME,
     FLAG_SAVEFIG,
     DIR_IMAGES,
-    DIR_BUCKET, TC_COLUMNS, AGG_OFF_COLUMNS, COLUMN_LAT, COLUMN_LON, DIR_PMW_ANALYSIS,
+    DIR_BUCKET, TC_COLUMNS, AGG_OFF_COLUMNS, COLUMN_LAT, COLUMN_LON, DIR_PMW_ANALYSIS, Stats, COLUMN_OCCURRENCE,
 )
-from pmw_analysis.analysis.cycle_detection import detect_cycle, plot_cycle, plot_periodogram
 from pmw_analysis.quantization.dataframe_pandas import read_time_series_and_drop_nan
 from pmw_analysis.quantization.dataframe_polars import quantize_pmw_features, get_uncertainties_dict, \
-    expand_occurrence_column, _round
+    expand_occurrence_column, _round, get_agg_column
 from pmw_analysis.quantization.script import get_range_dict
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_PD
 from pmw_analysis.utils.pandas import timestamp_to_fraction
@@ -70,20 +69,21 @@ def main():
     range_dict = get_range_dict(clip=False)
 
     # 0. Check signatures that have appeared for the first time later than others
+    column_occurrence_first_time = f"{get_agg_column(COLUMN_OCCURRENCE, Stats.MIN)}_{COLUMN_TIME}"
     for point, name in [(point_greenland, name_greenland)]:
         ts_pl = gpm.bucket.read(bucket_dir=DIR_BUCKET, point=point, distance=DISTANCE)
 
         ts_pl_quantized = quantize_pmw_features(ts_pl, quant_cols, unc_dict, range_dict, AGG_OFF_COLUMNS)
         ts_pl_quantized = expand_occurrence_column(ts_pl_quantized)
 
-        ts_pl_exploded = ts_pl_quantized.sort(COLUMN_OCCURRENCE_TIME, descending=True).explode(AGG_OFF_COLUMNS)
+        ts_pl_exploded = ts_pl_quantized.sort(column_occurrence_first_time, descending=True).explode(AGG_OFF_COLUMNS)
 
         df_unique = pl.read_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "unique.parquet")
         df_unique = expand_occurrence_column(df_unique)
 
         df_inner = df_unique.join(ts_pl_exploded, on=quant_cols, how="inner", nulls_equal=True)
-        assert df_inner.filter(pl.col(f"{COLUMN_OCCURRENCE_TIME}") >
-                               pl.col(f"{COLUMN_OCCURRENCE_TIME}_right")).height == 0
+        assert df_inner.filter(pl.col(f"{column_occurrence_first_time}") >
+                               pl.col(f"{column_occurrence_first_time}_right")).height == 0
 
     # 1. Read and process time series.
     ts_list = []

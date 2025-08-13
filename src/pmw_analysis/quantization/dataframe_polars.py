@@ -10,8 +10,7 @@ import polars as pl
 from tqdm import tqdm
 
 from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_TIME, COLUMN_LON, COLUMN_LAT, \
-    COLUMN_OCCURRENCE, COLUMN_OCCURRENCE_TIME, COLUMN_OCCURRENCE_LON, COLUMN_OCCURRENCE_LAT, \
-    FLAG_DEBUG, AGG_OFF_LIMIT, COLUMN_SUN_GLINT_ANGLE_LF, COLUMN_SUN_GLINT_ANGLE_HF
+    COLUMN_OCCURRENCE, FLAG_DEBUG, AGG_OFF_LIMIT, COLUMN_SUN_GLINT_ANGLE_LF, COLUMN_SUN_GLINT_ANGLE_HF, Stats
 
 
 #### COLUMNS ####
@@ -205,6 +204,10 @@ class DataFrameQuantizationInfo:
         Columns where only the minimum value is retained for each group.
         This is typically used for timestamp fields (e.g., earliest observation in group).
 
+    agg_max_columns : Sequence[str], optional
+        Columns where only the maximum value is retained for each group.
+        This is typically used for timestamp fields (e.g., latest observation in group).
+
     agg_off_columns : Sequence[str], optional
         Columns whose values are stored in lists, without aggregation.
 
@@ -226,7 +229,9 @@ class DataFrameQuantizationInfo:
     flag_columns: Sequence[str] = ()
     periodic_columns: Sequence[str] = ()
     special_columns: Sequence[str] = ()
+    # TODO: allow providing a dictionary of columns with corresponding operations
     agg_min_columns: Sequence[str] = ()
+    agg_max_columns: Sequence[str] = ()
     agg_off_columns: Sequence[str] = ()
     periodic_dict: Dict[str, float] = None
     special_dict: Dict[str, Tuple[float, str]] = None
@@ -253,6 +258,7 @@ class DataFrameQuantizationInfo:
             periodic_columns=_get_periodic_columns(agg_on_columns),
             special_columns=_get_special_columns(agg_on_columns),
             agg_min_columns=[COLUMN_OCCURRENCE],
+            agg_max_columns=[COLUMN_OCCURRENCE],
             agg_off_columns=agg_off_columns,
             periodic_dict=periodic_dict,
             special_dict=special_dict,
@@ -263,12 +269,16 @@ class DataFrameQuantizationInfo:
         """
         Return the columns whose values are aggregated using averaging function.
         """
+        agg_min_columns = [get_agg_column(col, Stats.MIN) for col in self.agg_min_columns]
+        agg_max_columns = [get_agg_column(col, Stats.MAX) for col in self.agg_max_columns]
+
         return [col for col in columns if
                 col not in self.quant_columns and
                 col not in self.flag_columns and
                 col not in self.periodic_columns and
                 col not in self.special_columns and
-                col not in self.agg_min_columns and
+                col not in self.agg_min_columns and col not in agg_min_columns and
+                col not in self.agg_max_columns and col not in agg_max_columns and
                 col not in self.agg_off_columns]
 
 
@@ -309,7 +319,8 @@ def _aggregate(lf: pl.DataFrame | pl.LazyFrame, info: DataFrameQuantizationInfo)
 
             pl.col(info.agg_off_columns).head(info.agg_off_limit),
 
-            *[pl.col(min_col).min() for min_col in info.agg_min_columns],
+            *[pl.col(min_col).min().alias(get_agg_column(min_col, Stats.MIN)) for min_col in info.agg_min_columns],
+            *[pl.col(max_col).max().alias(get_agg_column(max_col, Stats.MAX)) for max_col in info.agg_max_columns],
             pl.len().alias(COLUMN_COUNT),
         )
     )
@@ -500,7 +511,8 @@ def merge_quantized_features(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
                for mean_col in agg_mean_cols
                for expr in [aggregate_mean(mean_col),
                             pl.col(f"{mean_col}_count").sum()]],
-             *[pl.col(min_col).min() for min_col in info.agg_min_columns],
+             *[pl.col(get_agg_column(min_col, Stats.MIN)).min() for min_col in info.agg_min_columns],
+             *[pl.col(get_agg_column(max_col, Stats.MAX)).max() for max_col in info.agg_max_columns],
              pl.col(info.agg_off_columns).list.explode().head(info.agg_off_limit),
              pl.col(COLUMN_COUNT).sum(),
              )
@@ -523,6 +535,10 @@ def merge_quantized_features(lfs: Sequence[pl.DataFrame | pl.LazyFrame],
 ###############################################################################
 
 
+def get_agg_column(column: str, func: Stats) -> str:
+    return f"{column}_{func.value}"
+
+
 def create_occurrence_column(df: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:
     """
     Create a new column representing occurrences
@@ -541,11 +557,16 @@ def create_occurrence_column(df: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | 
 
 def expand_occurrence_column(df: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:
     """
-    Expand column into three, containing time of the first occurrence, longitude, and latitude.
+    Expand all occurrence columns into three, containing time, longitude, and latitude.
     """
-    return df.with_columns(
-        pl.col(COLUMN_OCCURRENCE).str.split("|").list.get(0).str.to_datetime("%Y-%m-%d %H:%M:%S.%9f")
-        .alias(COLUMN_OCCURRENCE_TIME),
-        pl.col(COLUMN_OCCURRENCE).str.split("|").list.get(1).str.to_decimal().alias(COLUMN_OCCURRENCE_LON),
-        pl.col(COLUMN_OCCURRENCE).str.split("|").list.get(2).str.to_decimal().alias(COLUMN_OCCURRENCE_LAT),
-    )
+    occurrence_columns = [COLUMN_OCCURRENCE] + [get_agg_column(COLUMN_OCCURRENCE, stat) for stat in Stats]
+    for column in occurrence_columns:
+        if column not in df.collect_schema().names():
+            continue
+        df = df.with_columns(
+            pl.col(column).str.split("|").list.get(0).str.to_datetime("%Y-%m-%d %H:%M:%S.%9f")
+            .alias(f"{column}_{COLUMN_TIME}"),
+            pl.col(column).str.split("|").list.get(1).str.to_decimal().alias(f"{column}_{COLUMN_LON}"),
+            pl.col(column).str.split("|").list.get(2).str.to_decimal().alias(f"{column}_{COLUMN_LAT}"),
+        )
+    return df

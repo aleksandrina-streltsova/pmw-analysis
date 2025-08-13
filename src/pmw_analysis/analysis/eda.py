@@ -18,21 +18,21 @@ from tqdm import tqdm
 
 from pmw_analysis.constants import (
     DIR_PMW_ANALYSIS,
-    COLUMN_COUNT, COLUMN_ACCUM_UNIQUE, COLUMN_ACCUM_ALL, COLUMN_OCCURRENCE_TIME,
+    COLUMN_COUNT, COLUMN_ACCUM_UNIQUE, COLUMN_ACCUM_ALL,
     ST_GROUP_SNOW, ST_GROUP_OCEAN, ST_GROUP_VEGETATION, ST_GROUP_EDGES, ST_GROUP_MISC,
     VARIABLE_SURFACE_TYPE_INDEX,
-    TC_COLUMNS, ST_COLUMNS, COLUMN_OCCURRENCE, ArgEDA, ArgTransform, DIR_IMAGES, DIR_HISTS,
+    TC_COLUMNS, ST_COLUMNS, ArgEDA, ArgTransform, DIR_IMAGES, DIR_HISTS, Stats, COLUMN_OCCURRENCE, COLUMN_TIME,
 )
 from pmw_analysis.copypaste.utils.cli import EnumAction
-from pmw_analysis.quantization.dataframe_polars import expand_occurrence_column
 from pmw_analysis.processing.filter import filter_by_flag_values
+from pmw_analysis.quantization.dataframe_polars import expand_occurrence_column, get_agg_column
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.io import combine_paths, file_to_dir
 from pmw_analysis.utils.polars import get_column_ranges, take_k_sorted
 from pmw_analysis.utils.pyplot import finalize_axis
 
 
-def plot_point_accumulation(path: pathlib.Path, var: str | None):
+def plot_point_accumulation(path: pathlib.Path, occurrence_stat: Stats, var: str | None):
     """
     Plot the accumulation of unique points over time for a given dataset.
 
@@ -45,14 +45,15 @@ def plot_point_accumulation(path: pathlib.Path, var: str | None):
 
     """
     df = pl.read_parquet(path)
-    columns = [COLUMN_OCCURRENCE_TIME, COLUMN_COUNT] + ([] if var is None else [var, f"{var}_count"])
+    column_occurrence_time = f"{get_agg_column(COLUMN_OCCURRENCE, occurrence_stat)}_{COLUMN_TIME}"
+    columns = [column_occurrence_time, COLUMN_COUNT] + ([] if var is None else [var, f"{var}_count"])
     df = expand_occurrence_column(df).select(columns)
-    df = df.with_columns(pl.col(COLUMN_OCCURRENCE_TIME).dt.round("1d"))
+    df = df.with_columns(pl.col(column_occurrence_time).dt.round("1d"))
     df = df.with_columns(pl.col(COLUMN_COUNT).cast(pl.UInt64))
-    df_count = _cum_sum_over_time(df)
+    df_count = _cum_sum_over_time(df, column_occurrence_time)
 
-    fig, axes = _plot_count_over_time(df_count)
-    fig_var = _plot_var_over_time(df, var, axes)
+    fig, axes = _plot_count_over_time(df_count, column_occurrence_time)
+    fig_var = _plot_var_over_time(df, column_occurrence_time, var, axes)
 
     images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(path),
                                path_rel_base=DIR_PMW_ANALYSIS) / "over_time"
@@ -64,33 +65,33 @@ def plot_point_accumulation(path: pathlib.Path, var: str | None):
         fig.savefig(images_dir / file_name)
 
 
-def _plot_count_over_time(df_count) -> Tuple[plt.Figure, np.ndarray[plt.Axes]]:
+def _plot_count_over_time(df_count, column_time) -> Tuple[plt.Figure, np.ndarray[plt.Axes]]:
     fig, axes = plt.subplots(1, 2, figsize=(15, 5))
     for ax, col_accum, title_prefix in zip(axes, [COLUMN_ACCUM_ALL, COLUMN_ACCUM_UNIQUE],
                                            ["Signatures first", "Unique signatures"]):
-        ax.plot(df_count[COLUMN_OCCURRENCE_TIME], df_count[col_accum], color="b", label="All")
+        ax.plot(df_count[column_time], df_count[col_accum], color="b", label="All")
         ax.set_yscale("log")
         finalize_axis(ax, title=f"{title_prefix} seen before this time", x_label="Time", y_label="Cumulative count")
 
     return fig, axes
 
 
-def _plot_var_over_time(df: pl.DataFrame, var: str, axes: np.ndarray[plt.Axes]) -> plt.Figure:
-    df_var_count_desc, df_var_mean_desc, df_var_not_null = _calculate_reverse_cumsum_for_variable(df, var)
+def _plot_var_over_time(df: pl.DataFrame, column_time: str, var: str, axes: np.ndarray[plt.Axes]) -> plt.Figure:
+    df_var_count_desc, df_var_mean_desc, df_var_not_null = _calculate_reverse_cumsum_for_variable(df, column_time, var)
     count_total_all = df_var_not_null[COLUMN_COUNT].sum()
     count_total_unique = len(df_var_not_null)
 
     for i, (col_accum, count_total) in enumerate(zip([COLUMN_ACCUM_ALL, COLUMN_ACCUM_UNIQUE],
                                                      [count_total_all, count_total_unique])):
-        axes[i].plot(df_var_count_desc[COLUMN_OCCURRENCE_TIME], count_total - df_var_count_desc[col_accum],
+        axes[i].plot(df_var_count_desc[column_time], count_total - df_var_count_desc[col_accum],
                      color="g", label=f"Not-null '{var}'")
 
     fig_var, (axes_var, axes_count) = plt.subplots(2, 2, figsize=(15, 10))
     for i, col_accum in enumerate([COLUMN_ACCUM_ALL, COLUMN_ACCUM_UNIQUE]):
-        axes_var[i].plot(df_var_mean_desc[COLUMN_OCCURRENCE_TIME], df_var_mean_desc[col_accum], color="r", label=var)
+        axes_var[i].plot(df_var_mean_desc[column_time], df_var_mean_desc[col_accum], color="r", label=var)
         finalize_axis(axes_var[i], title=f"Mean of '{var}' (from this time to end)", x_label="Time", y_label=var)
 
-        axes_count[i].plot(df_var_mean_desc[COLUMN_OCCURRENCE_TIME], df_var_count_desc[col_accum],
+        axes_count[i].plot(df_var_mean_desc[column_time], df_var_count_desc[col_accum],
                            color="g", label=f"Not-null '{var}'")
         finalize_axis(axes_count[i], title="Cumulative count (from this time to end)", x_label="Time", y_label="Count")
         axes_count[i].set_yscale("log")
@@ -105,7 +106,7 @@ class HistogramsMatrixParameters:
     var_norm: Any | None = None
 
 
-def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | None,
+def analyze(path: pathlib.Path, occurrence_stat: Stats, var: str | None, transform: Callable, k: int | None,
             ref_params_dir_path: pathlib.Path | None):
     """
     Generate pairplots of features for a given dataset.
@@ -125,16 +126,17 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
     feature_columns = transform(TC_COLUMNS)
     feature_columns = [col for col in feature_columns if col != var]
 
+    column_occurrence_time = f"{get_agg_column(COLUMN_OCCURRENCE, occurrence_stat)}_{COLUMN_TIME}"
     columns = (
             feature_columns +
-            [VARIABLE_SURFACE_TYPE_INDEX, COLUMN_COUNT, COLUMN_OCCURRENCE] +
+            [VARIABLE_SURFACE_TYPE_INDEX, COLUMN_COUNT, column_occurrence_time] +
             ([] if var is None else [var])
     )
     df = df_merged[[col for col in columns if col in df_merged.columns]]
     if k is not None:
-        df_newest = take_k_sorted(df, COLUMN_OCCURRENCE, k, COLUMN_COUNT, descending=True)
+        df_transients = take_k_sorted(df, column_occurrence_time, k, COLUMN_COUNT, descending=True)
     else:
-        df_newest = None
+        df_transients = None
     # df = df[:10000]  # for testing
 
     n_bins = []
@@ -169,7 +171,7 @@ def analyze(path: pathlib.Path, var: str | None, transform: Callable, k: int | N
         groups = [(None, None, None)]
 
     for group in groups:
-        _analyze_surface_type_group(df, df_newest, feature_columns, group, var, feature_ranges, n_bins,
+        _analyze_surface_type_group(df, df_transients, feature_columns, group, var, feature_ranges, n_bins,
                                     path, ref_params_dir_path)
 
 
@@ -177,19 +179,20 @@ def _sorted_not_null_unique_values(df: pl.DataFrame, col: str) -> pl.Series:
     return df[col].unique().drop_nulls().sort()
 
 
-def _cum_sum_over_time(df: pl.DataFrame, var: str | None = None, descending: bool = False) -> pl.DataFrame:
+def _cum_sum_over_time(df: pl.DataFrame, column_time: str, var: str | None = None,
+                       descending: bool = False) -> pl.DataFrame:
     if var is None:
-        df = df.group_by(COLUMN_OCCURRENCE_TIME).agg(
+        df = df.group_by(column_time).agg(
             pl.len().alias(COLUMN_ACCUM_UNIQUE),
             pl.col(COLUMN_COUNT).cast(pl.UInt64).sum().alias(COLUMN_ACCUM_ALL)
         )
     else:
-        df = df.group_by(COLUMN_OCCURRENCE_TIME).agg(
+        df = df.group_by(column_time).agg(
             pl.col(var).sum().alias(COLUMN_ACCUM_UNIQUE),
             pl.col(var).mul(pl.col(COLUMN_COUNT)).sum().alias(COLUMN_ACCUM_ALL)
         )
 
-    df = df.sort(COLUMN_OCCURRENCE_TIME, descending=descending)
+    df = df.sort(column_time, descending=descending)
     df = df.with_columns(
         pl.col(COLUMN_ACCUM_UNIQUE).cum_sum(),
         pl.col(COLUMN_ACCUM_ALL).cum_sum(),
@@ -199,15 +202,15 @@ def _cum_sum_over_time(df: pl.DataFrame, var: str | None = None, descending: boo
     return df
 
 
-def _calculate_reverse_cumsum_for_variable(df, var):
+def _calculate_reverse_cumsum_for_variable(df, column_time, var):
     var_count = f"{var}_{COLUMN_COUNT}"
 
     df_var_not_null = df.filter(pl.col(var_count).ne(0).and_(pl.col(var).is_not_nan()))  # TODO: fix
     df_var_not_null = df_var_not_null.drop(COLUMN_COUNT).rename({var_count: COLUMN_COUNT})
     df_var_not_null = df_var_not_null.with_columns(pl.col(COLUMN_COUNT).cast(pl.UInt64))
 
-    df_var_sum_desc = _cum_sum_over_time(df_var_not_null, var=var, descending=True)
-    df_var_count_desc = _cum_sum_over_time(df_var_not_null, descending=True)
+    df_var_sum_desc = _cum_sum_over_time(df_var_not_null, column_time, var=var, descending=True)
+    df_var_count_desc = _cum_sum_over_time(df_var_not_null, column_time, descending=True)
 
     df_var_mean_desc = df_var_sum_desc.with_columns(
         df_var_sum_desc[COLUMN_ACCUM_ALL] / df_var_count_desc[COLUMN_ACCUM_ALL],
@@ -216,7 +219,7 @@ def _calculate_reverse_cumsum_for_variable(df, var):
     return df_var_count_desc, df_var_mean_desc, df_var_not_null
 
 
-def _analyze_surface_type_group(df, df_newest, feature_columns, group, var, feature_ranges, n_bins,
+def _analyze_surface_type_group(df, df_transients, feature_columns, group, var, feature_ranges, n_bins,
                                 path, ref_params_dir_path):
     group_name, surface_types, color = group
 
@@ -231,7 +234,7 @@ def _analyze_surface_type_group(df, df_newest, feature_columns, group, var, feat
         cmap = mcolors.LinearSegmentedColormap.from_list("custom_cmap", ["lightyellow", color])
 
     df_to_use = df
-    df_to_use_newest = df_newest
+    df_to_use_transients = df_transients
 
     if flag_values is not None:
         df_to_use = filter_by_flag_values(df_to_use, VARIABLE_SURFACE_TYPE_INDEX, flag_values)
@@ -239,8 +242,8 @@ def _analyze_surface_type_group(df, df_newest, feature_columns, group, var, feat
             logging.info(f"No data for group: {group_name}. Continuing without plotting.")
             return
 
-        if df_to_use_newest is not None:
-            df_to_use_newest = filter_by_flag_values(df_to_use_newest, VARIABLE_SURFACE_TYPE_INDEX, flag_values)
+        if df_to_use_transients is not None:
+            df_to_use_transients = filter_by_flag_values(df_to_use_transients, VARIABLE_SURFACE_TYPE_INDEX, flag_values)
 
     if var is not None:
         cmap = plt.get_cmap("YlGnBu")
@@ -259,10 +262,11 @@ def _analyze_surface_type_group(df, df_newest, feature_columns, group, var, feat
 
     params = ref_params if ref_params is not None else HistogramsMatrixParameters(n_bins, feature_ranges)
     hists_mtx, alpha_mtx = _calculate_pairplots_concat_matrix(df_to_use, feature_columns, params, var)
-    if df_to_use_newest is not None:
-        hists_mtx_newest, _ = _calculate_pairplots_concat_matrix(df_to_use_newest, feature_columns, params, var=var)
+    if df_to_use_transients is not None:
+        hists_mtx_transients, _ = _calculate_pairplots_concat_matrix(df_to_use_transients, feature_columns, params,
+                                                                     var=var)
     else:
-        hists_mtx_newest = None
+        hists_mtx_transients = None
 
     hists_mtx_min = np.nanquantile(hists_mtx, 0.01)
     hists_mtx_max = np.nanquantile(hists_mtx, 0.99)
@@ -291,13 +295,13 @@ def _analyze_surface_type_group(df, df_newest, feature_columns, group, var, feat
     pickle.dump(params_used, open(hists_dir / hists_matx_params_file_name, "wb"))
 
     fig, ax = plt.subplots(1, 1, figsize=(4 * len(feature_columns) + 4, 4 * len(feature_columns)))
-    _plot_heatmap_with_varying_cell_sizes(hists_mtx, hists_mtx_newest, alpha_mtx, params_used, cmap, norm, ax)
+    _plot_heatmap_with_varying_cell_sizes(hists_mtx, hists_mtx_transients, alpha_mtx, params_used, cmap, norm, ax)
 
     _set_histograms2d_label(fig, ax, feature_columns)
     _set_histograms2d_label(fig, ax, feature_columns[::-1], is_y=True)
 
     title_suffix = "" if var is None else f" ({var})"
-    fig_suffix = "" if df_newest is None else "_newest"
+    fig_suffix = "" if df_transients is None else "_newest"
     fig_suffix += "" if var is None else f"_{var}"
 
     if group_name is not None:
@@ -308,7 +312,7 @@ def _analyze_surface_type_group(df, df_newest, feature_columns, group, var, feat
         fig.savefig(images_dir / f"count_{group_name}_{len(feature_columns)}{fig_suffix}.png")
 
 
-def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_newest: np.ndarray | None,
+def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_transients: np.ndarray | None,
                                           alpha_mtx: np.ndarray,
                                           params: HistogramsMatrixParameters,
                                           cmap, norm, ax: plt.Axes):
@@ -324,9 +328,9 @@ def _plot_heatmap_with_varying_cell_sizes(hists_mtx: np.ndarray, hists_mtx_newes
     bounds = np.concatenate([[2 * bounds[0] - bounds[1]], bounds, [2 * bounds[-1] - bounds[-2]]])
 
     c = ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx[::-1], cmap=cmap, norm=norm, alpha=alpha_mtx[::-1])
-    if hists_mtx_newest is not None:
-        cmap_newest = "viridis"
-        ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx_newest[::-1], cmap=cmap_newest)
+    if hists_mtx_transients is not None:
+        cmap_transients = "viridis"
+        ax.pcolormesh(bounds, (bounds[-1] - bounds)[::-1], hists_mtx_transients[::-1], cmap=cmap_transients)
 
     ax.vlines(lines[1:-1], ymin=lines[0], ymax=lines[-1], colors='black')
     ax.hlines(lines[1:-1], xmin=lines[0], xmax=lines[-1], colors='black')
@@ -445,6 +449,9 @@ def main():
                         help="Type of transformation performed on data")
     parser.add_argument("--path", type=pathlib.Path,
                         help="Transformed data path if it is different from the default one")
+    parser.add_argument("--occurrence-stat", default=Stats.MIN, type=Stats, action=EnumAction,
+                        help="Statistic used on occurrence column. "
+                             "Used in accumulation analysis and in pairplot analysis if k is specified")
     parser.add_argument("--var", help="Variable to use in analysis")
     parser.add_argument("--k", type=int, help="Number of newest signatures to plot in red")
     # TODO: naming is inconsistent: `ref_params_path` vs `path_ref_params`
@@ -461,9 +468,9 @@ def main():
 
     match args.analysis:
         case ArgEDA.ACCUM:
-            plot_point_accumulation(path, args.var)
+            plot_point_accumulation(path, args.occurrence_stat, args.var)
         case ArgEDA.PAIRPLOT:
-            analyze(path, args.var, transform, args.k, args.ref_params_path)
+            analyze(path, args.occurrence_stat, args.var, transform, args.k, args.ref_params_path)
         case _:
             raise ValueError(f"{args.analysis.value} is not supported.")
 

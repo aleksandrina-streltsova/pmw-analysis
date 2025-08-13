@@ -8,10 +8,10 @@ from typing import Dict, List, Sequence
 import numpy as np
 import polars as pl
 
-from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_OCCURRENCE, TC_COLUMNS
+from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_OCCURRENCE, TC_COLUMNS, Stats
 from pmw_analysis.quantization.dataframe_polars import _round, _get_tc_columns, \
     _get_special_dict, _aggregate, _get_periodic_dict, merge_quantized_pmw_features, \
-    DataFrameQuantizationInfo
+    DataFrameQuantizationInfo, get_agg_column
 
 
 def _get_test_columns() -> Sequence[str]:
@@ -71,7 +71,8 @@ def _create_single_row_aggregated() -> pl.DataFrame:
         **special,
         **agg_off,
         **agg_mean,
-        COLUMN_OCCURRENCE: datetime.datetime(2000, 1, 1, 0, 0, 0),
+        get_agg_column(COLUMN_OCCURRENCE, Stats.MIN): datetime.datetime(2000, 1, 1, 0, 0, 0),
+        get_agg_column(COLUMN_OCCURRENCE, Stats.MAX): datetime.datetime(2001, 1, 1, 1, 1, 1),
         COLUMN_COUNT: 0,
     }).with_columns([
         pl.col(flag_col)
@@ -105,6 +106,7 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
     """
     Unit test case class for testing data preprocessing functionalities.
     """
+
     def test_round(self) -> None:
         """
         Unit test for verifying the correctness of the `pmw_analysis.quantization.dataframe_polars._round` function.
@@ -135,10 +137,9 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         lf_before = df_before
         lf_after_actual = _round(lf_before, tc_columns, uncertainties, quant_ranges=None)
 
-        df_after_actual = lf_after_actual #.collect()
+        df_after_actual = lf_after_actual  # .collect()
 
         assert df_after_expected.equals(df_after_actual)
-
 
     def test_aggregate(self):
         """
@@ -265,15 +266,17 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
 
             expected[1, f"{agg_mean_col}_count"] = 1
         # time
-        expected[0, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 0, 0, 0)
-        expected[1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+        expected[0, get_agg_column(COLUMN_OCCURRENCE, Stats.MIN)] = datetime.datetime(2019, 1, 1, 0, 0, 0)
+        expected[0, get_agg_column(COLUMN_OCCURRENCE, Stats.MAX)] = datetime.datetime(2020, 1, 1, 0, 0, 0)
+        expected[1, get_agg_column(COLUMN_OCCURRENCE, Stats.MIN)] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+        expected[1, get_agg_column(COLUMN_OCCURRENCE, Stats.MAX)] = datetime.datetime(2019, 1, 1, 1, 0, 0)
         # count
         expected[0, COLUMN_COUNT] = n - 1
         expected[1, COLUMN_COUNT] = 1
 
         # lf_before = df_before.lazy()
         lf_before = df_before
-        actual = _aggregate(lf_before, info) #.collect()
+        actual = _aggregate(lf_before, info)  # .collect()
         actual = actual.with_columns([
             pl.col(flag_col).list.sort()
             for flag_col in info.flag_columns
@@ -284,7 +287,6 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         self.assertEqual(sorted(expected.columns), sorted(actual.columns))
         # TODO replace with self.assert... ?
         assert expected.equals(actual.select(expected.columns))
-
 
     def test_merge(self):
         """
@@ -377,8 +379,10 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
             dfs[k][0, COLUMN_COUNT] = (n - 1) * (k + 1)
             dfs[k][1, COLUMN_COUNT] = k + 1
             # time
-            dfs[k][0, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1 - k, 0, 0)
-            dfs[k][1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+            dfs[k][0, get_agg_column(COLUMN_OCCURRENCE, Stats.MIN)] = datetime.datetime(2019, 1, 1, 1 - k, 0, 0)
+            dfs[k][0, get_agg_column(COLUMN_OCCURRENCE, Stats.MAX)] = datetime.datetime(2019, 1, 1, 1 - k, 1, 1)
+            dfs[k][1, get_agg_column(COLUMN_OCCURRENCE, Stats.MIN)] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+            dfs[k][1, get_agg_column(COLUMN_OCCURRENCE, Stats.MAX)] = datetime.datetime(2020, 1, 1, 1, 0, 0)
 
         #### expected df after merging ####
         expected = pl.concat([_create_single_row_aggregated() for _ in range(3)])
@@ -457,13 +461,15 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
         for k in range(len(dfs)):
             expected[k + 1, COLUMN_COUNT] = 1 * (k + 1)
         # time
-        expected[0, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 0, 0, 0)
+        expected[0, get_agg_column(COLUMN_OCCURRENCE, Stats.MIN)] = datetime.datetime(2019, 1, 1, 0, 0, 0)
+        expected[0, get_agg_column(COLUMN_OCCURRENCE, Stats.MAX)] = datetime.datetime(2019, 1, 1, 1, 1, 1)
         for k in range(len(dfs)):
-            expected[k + 1, COLUMN_OCCURRENCE] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+            expected[k + 1, get_agg_column(COLUMN_OCCURRENCE, Stats.MIN)] = datetime.datetime(2019, 1, 1, 1, 0, 0)
+            expected[k + 1, get_agg_column(COLUMN_OCCURRENCE, Stats.MAX)] = datetime.datetime(2020, 1, 1, 1, 0, 0)
 
         # lfs = [df.lazy() for df in dfs]
         lfs = dfs
-        actual = merge_quantized_pmw_features(lfs, TC_COLUMNS, agg_off_columns, agg_off_limit=5) #.collect()
+        actual = merge_quantized_pmw_features(lfs, TC_COLUMNS, agg_off_columns, agg_off_limit=5)  # .collect()
         actual = actual.with_columns([
             pl.col(flag_col).list.sort()
             for flag_col in info.flag_columns

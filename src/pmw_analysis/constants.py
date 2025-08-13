@@ -26,10 +26,6 @@ COLUMN_TEMP_2M_INDEX = "temp2mIndex"
 SUN_GLINT_PRESENCE_RANGE = (0, 20)
 QUALITY_FLAG_NON_NORMAL_STATUS_MODE = -7
 
-COLUMN_OCCURRENCE_TIME = f"occurrence_{COLUMN_TIME}"
-COLUMN_OCCURRENCE_LON = f"occurrence_{COLUMN_LON}"
-COLUMN_OCCURRENCE_LAT = f"occurrence_{COLUMN_LAT}"
-
 COLUMN_BREAKPOINT = "breakpoint"
 COLUMN_CATEGORY = "category"
 
@@ -119,6 +115,17 @@ AGG_OFF_LIMIT = 100
 FILE_DF_FINAL = "final.parquet"
 FILE_DF_FINAL_NEWEST = "final_newest.parquet"
 FILE_DF_FINAL_WITHOUT_NEWEST = "final_without_newest.parquet"
+FILE_DF_FINAL_OLDEST = "final_oldest.parquet"
+FILE_DF_FINAL_WITHOUT_OLDEST = "final_without_oldest.parquet"
+
+
+class Stats(enum.Enum):
+    MIN = "min"
+    MAX = "max"
+    MEAN = "mean"
+    STD = "std"
+    MEDIAN = "median"
+    MODE = "mode"
 
 
 class ArgTransform(enum.Enum):
@@ -156,7 +163,7 @@ class ArgQuantizationStep(enum.Enum):
     FACTOR = "factor"
     QUANTIZE = "quantize"
     MERGE = "merge"
-    NEWEST = "newest"
+    TRANSIENTS = "transients"
 
 
 class ArgSurfaceType(enum.Enum):

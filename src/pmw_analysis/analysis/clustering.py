@@ -22,7 +22,7 @@ from umap.umap_ import nearest_neighbors
 
 from pmw_analysis.constants import COLUMN_COUNT, DIR_PMW_ANALYSIS, ST_COLUMNS, ST_GROUP_VEGETATION, \
     ST_GROUP_OCEAN, ST_GROUP_SNOW, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES
-from pmw_analysis.constants import VARIABLE_SURFACE_TYPE_INDEX, COLUMN_OCCURRENCE, TC_COLUMNS
+from pmw_analysis.constants import VARIABLE_SURFACE_TYPE_INDEX, TC_COLUMNS
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.copypaste.wpca import WPCA
 from pmw_analysis.processing.filter import filter_by_flag_values
@@ -189,7 +189,7 @@ def clusterize(df_path: pathlib.Path,
     df_merged: pl.DataFrame = pl.read_parquet(df_path)
     feature_columns = transform(TC_COLUMNS)
 
-    df = df_merged[feature_columns + [COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_OCCURRENCE]]
+    df = df_merged[feature_columns + [COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX]]
     # df = merge_quantized_pmw_features([df], quant_columns=feature_columns)
     df = df.drop_nans(feature_columns)
 
