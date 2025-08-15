@@ -246,7 +246,7 @@ def _analyze_surface_type_group(df, df_transients, feature_columns, group, var, 
             df_to_use_transients = filter_by_flag_values(df_to_use_transients, VARIABLE_SURFACE_TYPE_INDEX, flag_values)
 
     if var is not None:
-        cmap = plt.get_cmap("YlGnBu")
+        cmap = plt.get_cmap("Spectral_r")
 
     cmap.set_bad(alpha=0)
 
