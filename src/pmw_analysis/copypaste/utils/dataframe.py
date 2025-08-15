@@ -3,6 +3,7 @@ This module contains copy-pasted functions from GPM library and should be remove
 """
 import numpy as np
 import pandas as pd
+import polars as pl
 
 
 def compute_2d_histogram(df, x, y, var=None, x_bins=10, y_bins=10, x_labels=None, y_labels=None, prefix_name=True):
@@ -34,6 +35,10 @@ def compute_2d_histogram(df, x, y, var=None, x_bins=10, y_bins=10, x_labels=None
         Dataset with dimensions corresponding to binned variables and
         data variables for each statistic
     """
+    if isinstance(df, pl.DataFrame):
+        df = df.to_pandas()
+
+    # Copy data
     df = df.copy()
 
     # If no var specified, create dummy variable
@@ -55,7 +60,7 @@ def compute_2d_histogram(df, x, y, var=None, x_bins=10, y_bins=10, x_labels=None
     df = df.dropna(subset=[x, y, var])
 
     if len(df) == 0:
-        raise ValueError("No valid data points after removing NaN values.")
+        raise ValueError("No valid data points after removing NaN values")
 
     # Create binned columns with explicit handling of out-of-bounds values
     df[f"{x}_binned"] = pd.cut(df[x], bins=x_bins, include_lowest=True)
@@ -71,15 +76,14 @@ def compute_2d_histogram(df, x, y, var=None, x_bins=10, y_bins=10, x_labels=None
     # Define statistics to compute
     if var_specified:
         list_stats = [
-            (f"{prefix}count", "count"),
+            ("count", "count"),
             (f"{prefix}median", "median"),
             (f"{prefix}std", "std"),
             (f"{prefix}min", "min"),
             (f"{prefix}max", "max"),
-            (f"{prefix}mode", lambda x: x.mode()[0]),
         ]
     else:
-        list_stats = [(f"{prefix}count", "count")]
+        list_stats = [("count", "count")]
 
     # Compute statistics
     df_stats = df.groupby([f"{x}_binned", f"{y}_binned"])[var].agg(list_stats)
