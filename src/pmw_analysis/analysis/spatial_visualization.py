@@ -1,3 +1,4 @@
+import datetime
 import pathlib
 
 import matplotlib.pyplot as plt
@@ -10,6 +11,7 @@ import xarray as xr
 from gpm.bucket import LonLatPartitioning
 from gpm.dataset.crs import set_dataset_crs
 from gpm.visualization.plot import _sanitize_cartopy_plot_kwargs
+from matplotlib.colors import BoundaryNorm
 from pycolorbar import get_plot_kwargs
 
 from pmw_analysis.constants import TC_COLUMNS, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, FLAG_SAVEFIG, COLUMN_LON, \
@@ -49,14 +51,14 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
             {col: [pl.col(col), pl.col(col).mode().first().alias(get_agg_column(col, Stats.MODE))]
              for col in quality_flag_columns} |
             {COLUMN_COUNT: [pl.col(feature_columns[0]).count().alias(COLUMN_COUNT)]} |
-            {VARIABLE_SURFACE_TYPE_INDEX: [pl.col(VARIABLE_SURFACE_TYPE_INDEX).mode().first()]} |
+            {col: [pl.col(col).mode().first()] for col in [VARIABLE_SURFACE_TYPE_INDEX, "peaks"]} |
             {col: [pl.col(col).eq(-88).sum() / pl.len()] for col in sun_glint_angle_columns}
     )
 
     texts = (
             {col: "Mean of bin values" for col in feature_columns} |
             {COLUMN_COUNT: "Count of bin values"} |
-            {VARIABLE_SURFACE_TYPE_INDEX: "Mode of bin values"} |
+            {col: "Mode of bin values" for col in [VARIABLE_SURFACE_TYPE_INDEX, "peaks"]} |
             {col: "0 if 0 is present in bin, otherwise, mode" for col in quality_flag_columns} |
             {col: "Share of values equal to -88 in bin" for col in sun_glint_angle_columns}
     )
@@ -84,6 +86,12 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
         for flag_col in quality_flag_columns if flag_col in columns_to_plot
     ]).drop([get_agg_column(flag_col, Stats.MODE) for flag_col in quality_flag_columns if flag_col in columns_to_plot])
 
+    timestamp_columns = set()
+    for column, dtype in zip(df_agg.columns, df_agg.dtypes):
+        if dtype == pl.Datetime:
+            df_agg = df_agg.with_columns(pl.col(column).dt.timestamp("ms"))
+            timestamp_columns.add(column)
+
     ds = partitioning.to_xarray(df_agg, spatial_coords=("lon_bin", "lat_bin"))
     ds = ds.rename({"lon_bin": "longitude", "lat_bin": "latitude"})
 
@@ -95,7 +103,7 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
     for i, var in enumerate(ds.data_vars):
         # if i >= 2:
         #     break
-        plot_kwargs, cbar_kwargs = _get_plot_kwargs_for_variable(ds, var)
+        plot_kwargs, cbar_kwargs = _get_plot_kwargs_for_variable(ds, var, is_timestamp=var in timestamp_columns)
 
         p = ds[var].gpm.plot_map(x="longitude", y="latitude",
                                  **plot_kwargs,
@@ -109,8 +117,8 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
         plt.show()
 
 
-def _get_plot_kwargs_for_variable(ds, var):
-    if var in TC_COLUMNS:
+def _get_plot_kwargs_for_variable(ds, var: str, is_timestamp):
+    if var.startswith("Tc") or var.startswith("pd") or var.startswith("diff") or var.startswith("ratio"):
         plot_kwargs, cbar_kwargs = get_plot_kwargs("brightness_temperature")
         # TODO: why is `alpha_bad = 0.5` if all the plots are with `alpha_bad = 0.0`?
         return _sanitize_cartopy_plot_kwargs(plot_kwargs), cbar_kwargs
@@ -125,10 +133,28 @@ def _get_plot_kwargs_for_variable(ds, var):
     unique_values = unique_values[~np.isnan(unique_values)]
     count_unique_values = len(unique_values)
 
-    if count_unique_values < 10:
-        if np.all(np.isclose(unique_values % 1, 0)):
-            if count_unique_values > 1:
-                norm = pycolorbar.norm.CategoryNorm({int(v): str(v) for _, v in enumerate(unique_values)})
-                plot_kwargs = {"norm": norm}
+    if 1 < count_unique_values < 10:
+        unique_values = np.sort(unique_values)
+        norm = BoundaryNorm(_centers_to_edges(unique_values), ncolors=len(unique_values))
+        plot_kwargs = {"norm": norm, "cmap": "Set3"}
+
+        if cbar_kwargs is None:
+            cbar_kwargs = {}
+            if is_timestamp:
+                cbar_kwargs["ticklabels"] = [datetime.datetime.fromtimestamp(value / 1000) for value in unique_values]
+            else:
+                cbar_kwargs["ticklabels"] = unique_values
+        cbar_kwargs["ticks"] = unique_values
 
     return plot_kwargs, cbar_kwargs
+
+
+def _centers_to_edges(centers):
+    centers = np.asarray(centers)
+
+    midpoints = centers[:-1] + np.diff(centers) / 2
+    first_edge = centers[0] - (centers[1] - centers[0]) / 2
+    last_edge = centers[-1] + (centers[-1] - centers[-2]) / 2
+
+    edges = np.concatenate(([first_edge], midpoints, [last_edge]))
+    return edges
