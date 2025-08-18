@@ -43,6 +43,7 @@ FLAG_DEBUG = False
 
 DIR_IMAGES = "images"
 DIR_HISTS = "hists"
+DIR_MODEL = "model"
 DIR_BUCKET = "/ltenas8/data/GPM_Buckets/GMI"
 DIR_PMW_ANALYSIS = "/ltenas8/data/PMW_Analysis"
 DIR_NO_SUN_GLINT = "no_sun_glint"

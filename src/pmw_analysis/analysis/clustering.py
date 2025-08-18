@@ -21,7 +21,8 @@ from umap import UMAP
 from umap.umap_ import nearest_neighbors
 
 from pmw_analysis.constants import COLUMN_COUNT, DIR_PMW_ANALYSIS, ST_COLUMNS, ST_GROUP_VEGETATION, \
-    ST_GROUP_OCEAN, ST_GROUP_SNOW, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES
+    ST_GROUP_OCEAN, ST_GROUP_SNOW, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES, ArgSurfaceType, \
+    FILE_DF_FINAL, DIR_MODEL
 from pmw_analysis.constants import VARIABLE_SURFACE_TYPE_INDEX, TC_COLUMNS
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.copypaste.wpca import WPCA
@@ -115,19 +116,9 @@ class DimensionalityReductionIndexModel:
 def _umap_fit_transform(features: pl.DataFrame,
                         n_components: int, max_iter: int,
                         n_neighbors: int, min_dist: float,
-                        knn_path: pathlib.Path) -> Tuple[Any, Any]:
-    if not knn_path.exists():
-        mnist_knn = nearest_neighbors(features,
-                                      n_neighbors=200,
-                                      metric="euclidean",
-                                      metric_kwds=None,
-                                      angular=False,
-                                      random_state=566)
-        with open(knn_path, "wb") as knn_file:
-            pickle.dump(mnist_knn, knn_file)
-    else:
-        with open(knn_path, "rb") as knn_file:
-            mnist_knn = pickle.load(knn_file)
+                        knn_dir_path: pathlib.Path) -> Tuple[Any, Any]:
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    logging.info("Reducing dimensionality with UMAP on a device: %s", device)
 
     if torch.cuda.is_available():
         kwargs_torchdr = {
@@ -141,13 +132,27 @@ def _umap_fit_transform(features: pl.DataFrame,
         }
         reducer_base = TorchdrUMAP(**kwargs_torchdr)
     else:
+        knn_path = knn_dir_path / f"knn_{len(features)}.pkl"
+        if not knn_path.exists():
+            knn = nearest_neighbors(features,
+                                    n_neighbors=200,
+                                    metric="euclidean",
+                                    metric_kwds=None,
+                                    angular=False,
+                                    random_state=566,
+                                    verbose=True)
+            with open(knn_path, "wb") as knn_file:
+                pickle.dump(knn, knn_file)
+        else:
+            with open(knn_path, "rb") as knn_file:
+                knn = pickle.load(knn_file)
         kwargs_umap = {
             "n_components": n_components,
             "n_epochs": max_iter,
             "verbose": True,
             "n_neighbors": n_neighbors,
             "min_dist": min_dist,
-            "precomputed_knn": mnist_knn,
+            "precomputed_knn": knn,
         }
         reducer_base = UMAP(**kwargs_umap)
     features_reduced = reducer_base.fit_transform(features)
@@ -184,6 +189,11 @@ def clusterize(df_path: pathlib.Path,
     # transform = get_transformation_function(args_transform)
     # df_path = pathlib.Path(PMW_ANALYSIS_DIR) / args_transform / "final.parquet"
     #
+    model_dir_path = combine_paths(path_base=DIR_MODEL, path_rel=df_path, path_rel_base=DIR_PMW_ANALYSIS)
+    model_dir_path.mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(level=logging.INFO)
+
     use_weights = True
 
     df_merged: pl.DataFrame = pl.read_parquet(df_path)
@@ -221,11 +231,10 @@ def clusterize(df_path: pathlib.Path,
                                                                      weight_train if use_weights else None,
                                                                      n_components=None)
             case ArgDimensionalityReduction.UMAP:
-                knn_path = pathlib.Path(df_path.parent / f"knn_{len(df_train)}.pkl")
                 features_train_reduced, reducer = _umap_fit_transform(features_train_scaled,
                                                                       n_components=2, max_iter=500,
                                                                       n_neighbors=200, min_dist=0.95,
-                                                                      knn_path=knn_path)
+                                                                      knn_dir_path=model_dir_path)
             case _:
                 raise ValueError(f"{reduction.value} is not supported.")
 
@@ -247,7 +256,7 @@ def clusterize(df_path: pathlib.Path,
                 raise ValueError(f"{clustering.value} is not supported.")
 
     final_model = ClusterModel(scaler, reducer, clusterer)
-    final_model.save(df_path.parent / f"{reduction}_{clustering}.pkl")
+    final_model.save(model_dir_path / f"{reduction}_{clustering}.pkl")
 
     with timing("Scaling features"):
         features_scaled = scaler.transform(df[feature_columns])
@@ -268,7 +277,7 @@ def clusterize(df_path: pathlib.Path,
         HistogramData(data=features_reduced, weight=df[COLUMN_COUNT], title="All surfaces", alpha=1.0,
                       cmap="rocket_r", color=None, x_label="Component 1", y_label="Component 2")
     ]
-    plot_histograms2d(hist_data_count, path=file_path, title=reduction.upper(),
+    plot_histograms2d(hist_data_count, path=file_path, title=reduction.value.upper(),
                       bins=N_BINS, use_log_norm=use_log_norm)
 
     # clustering results
