@@ -1,5 +1,6 @@
 from typing import Sequence, Tuple, List
 
+import numpy as np
 import polars as pl
 
 from pmw_analysis.constants import COLUMN_SUFFIX_QUANT, COLUMN_COUNT, STRUCT_FIELD_COUNT
@@ -8,7 +9,7 @@ from pmw_analysis.constants import COLUMN_SUFFIX_QUANT, COLUMN_COUNT, STRUCT_FIE
 def filter_by_signature_occurrences_count(df: pl.DataFrame,
                                           m_occurrences: int,
                                           quant_columns: Sequence[str],
-                                          ) -> Tuple[pl.DataFrame, Sequence[str]]:
+                                          ) -> pl.DataFrame:
     """
     Filter the input DataFrame by occurrences of signatures.
     Calculate the number of occurrences of each unique combination of specified quant columns and
@@ -19,8 +20,9 @@ def filter_by_signature_occurrences_count(df: pl.DataFrame,
     df_quant_m = df.select(quant_columns_suffixed).group_by(quant_columns_suffixed).agg(pl.len().alias(COLUMN_COUNT))
     df_quant_m = df_quant_m.filter(pl.col(COLUMN_COUNT) >= m_occurrences)
 
-    return df_quant_m, quant_columns_suffixed
+    df_m = df.join(df_quant_m, on=quant_columns_suffixed, how="inner")
 
+    return df_m
 
 def filter_by_flag_values(df, flag_column: str, flag_value: int | List[int], filter_out: bool = False) -> pl.DataFrame:
     """
@@ -50,12 +52,34 @@ def filter_by_flag_values(df, flag_column: str, flag_value: int | List[int], fil
     return df_result
 
 
-def filter_by_value_range(df, column: str, value_range: Tuple, filter_out: bool = False):
+def filter_by_value_range(df, column: str | list[str], value_range: Tuple | list[Tuple] | np.ndarray,
+                          filter_out: bool = False) -> pl.DataFrame:
     """
     Filter rows in data frame leaving only those with values within the specified range.
+    If multiple columns are specified, the ranges are applied to each column individually.
+
+    Parameters
+    ----------
+    filter_out : bool, optional
+        If True, filter out rows that satisfy the condition, by default, False
     """
-    filter_expr = pl.col(column).is_between(*value_range, closed="left")
+    filter_expr = get_filter_expr_from_value_range(column, value_range, filter_out)
+
+    return df.filter(filter_expr)
+
+
+def get_filter_expr_from_value_range(column: str | list[str], value_range: Tuple | list[Tuple] | np.ndarray,
+                                     filter_out: bool = False) -> pl.Expr:
+    if isinstance(column, str):
+        column = [column]
+        value_range = [value_range]
+
+    filter_expr = pl.lit(True)
+
+    for col, rng in zip(column, value_range):
+        filter_expr = filter_expr.and_(pl.col(col).is_between(*rng, closed="left"))
+
     if filter_out:
         filter_expr = filter_expr.not_()
 
-    return df.filter(filter_expr)
+    return filter_expr

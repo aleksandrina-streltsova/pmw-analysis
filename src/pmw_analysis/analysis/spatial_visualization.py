@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+from numbers import Number
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,7 +12,7 @@ import xarray as xr
 from gpm.bucket import LonLatPartitioning
 from gpm.dataset.crs import set_dataset_crs
 from gpm.visualization.plot import _sanitize_cartopy_plot_kwargs
-from matplotlib.colors import BoundaryNorm
+from matplotlib.colors import BoundaryNorm, LogNorm
 from pycolorbar import get_plot_kwargs
 
 from pmw_analysis.constants import TC_COLUMNS, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, FLAG_SAVEFIG, COLUMN_LON, \
@@ -22,7 +23,9 @@ from pmw_analysis.quantization.script import get_transformation_function
 
 
 def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_dir: pathlib.Path,
-                          title_text_suffix: str = "", file_name_suffix: str = ""):
+                          threshold_cat: int = 10,
+                          title_text_suffix: str = "", file_name_suffix: str = "",
+                          extent: list[Number] | None = None):
     transform = get_transformation_function(transform_arg)
 
     feature_columns = transform(TC_COLUMNS)
@@ -37,7 +40,9 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
                      [COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX])
     columns_to_plot = [col for col in df.columns if col not in [COLUMN_LON, COLUMN_LAT]]
     # extent = [-73, -11, 59, 83] # Greenland
-    extent = [-180, 180, -70, 70]
+
+    if extent == None:
+        extent = [-180, 180, -70, 70]
 
     partitioning = LonLatPartitioning(size=0.5, extent=extent)
 
@@ -48,10 +53,10 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
 
     expressions = (
             {col: [pl.col(col).mean()] for col in feature_columns} |
-            {col: [pl.col(col), pl.col(col).mode().first().alias(get_agg_column(col, Stats.MODE))]
+            {col: [pl.col(col), _not_null_mode_expr(col).alias(get_agg_column(col, Stats.MODE))]
              for col in quality_flag_columns} |
-            {COLUMN_COUNT: [pl.col(feature_columns[0]).count().alias(COLUMN_COUNT)]} |
-            {col: [pl.col(col).mode().first()] for col in [VARIABLE_SURFACE_TYPE_INDEX, "peaks"]} |
+            {COLUMN_COUNT: [pl.len().alias(COLUMN_COUNT)]} |
+            {col: [_not_null_mode_expr(col)] for col in [VARIABLE_SURFACE_TYPE_INDEX, "peaks"]} |
             {col: [pl.col(col).eq(-88).sum() / pl.len()] for col in sun_glint_angle_columns}
     )
 
@@ -67,8 +72,8 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
         if col in known_columns:
             continue
         value_counts = df[col].value_counts().filter(pl.col(col).is_not_null())
-        if value_counts.height < 10:
-            expressions[col] = [pl.col(col).mode().first()]
+        if value_counts.height <= threshold_cat:
+            expressions[col] = [_not_null_mode_expr(col)]
             texts[col] = "Mode of bin values"
         else:
             expressions[col] = [pl.col(col).mean()]
@@ -103,8 +108,11 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
     for i, var in enumerate(ds.data_vars):
         # if i >= 2:
         #     break
-        plot_kwargs, cbar_kwargs = _get_plot_kwargs_for_variable(ds, var, is_timestamp=var in timestamp_columns)
-
+        plot_kwargs, cbar_kwargs = _get_plot_kwargs_for_variable(ds, var,
+                                                                 is_timestamp=var in timestamp_columns,
+                                                                 threshold_cat=threshold_cat)
+        if var == COLUMN_COUNT:
+            plot_kwargs["norm"] = LogNorm(vmin=1, vmax=np.nanmax(ds[var].values))
         p = ds[var].gpm.plot_map(x="longitude", y="latitude",
                                  **plot_kwargs,
                                  fig_kwargs=fig_kwargs,
@@ -117,7 +125,11 @@ def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_
         plt.show()
 
 
-def _get_plot_kwargs_for_variable(ds, var: str, is_timestamp):
+def _not_null_mode_expr(col: str) -> pl.Expr:
+    return pl.col(col).drop_nulls().mode().first()
+
+
+def _get_plot_kwargs_for_variable(ds, var: str, is_timestamp, threshold_cat: int):
     if var.startswith("Tc") or var.startswith("pd") or var.startswith("diff") or var.startswith("ratio"):
         plot_kwargs, cbar_kwargs = get_plot_kwargs("brightness_temperature")
         # TODO: why is `alpha_bad = 0.5` if all the plots are with `alpha_bad = 0.0`?
@@ -133,10 +145,14 @@ def _get_plot_kwargs_for_variable(ds, var: str, is_timestamp):
     unique_values = unique_values[~np.isnan(unique_values)]
     count_unique_values = len(unique_values)
 
-    if 1 < count_unique_values < 10:
+    if 1 < count_unique_values <= threshold_cat:
         unique_values = np.sort(unique_values)
         norm = BoundaryNorm(_centers_to_edges(unique_values), ncolors=len(unique_values))
-        plot_kwargs = {"norm": norm, "cmap": "Set3"}
+
+        default_cmap = "Set3"
+        if count_unique_values > plt.colormaps.get_cmap(default_cmap).N:
+            default_cmap = "turbo"
+        plot_kwargs = {"norm": norm, "cmap": default_cmap}
 
         if cbar_kwargs is None:
             cbar_kwargs = {}
