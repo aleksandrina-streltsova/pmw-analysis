@@ -118,7 +118,8 @@ FILE_DF_FINAL_NEWEST = "final_newest.parquet"
 FILE_DF_FINAL_WITHOUT_NEWEST = "final_without_newest.parquet"
 FILE_DF_FINAL_OLDEST = "final_oldest.parquet"
 FILE_DF_FINAL_WITHOUT_OLDEST = "final_without_oldest.parquet"
-
+FILE_DF_FINAL_RAREST = "final_rarest.parquet"
+FILE_DF_FINAL_WITHOUT_RAREST = "final_without_rarest.parquet"
 
 class Stats(enum.Enum):
     MIN = "min"
@@ -165,6 +166,7 @@ class ArgQuantizationStep(enum.Enum):
     QUANTIZE = "quantize"
     MERGE = "merge"
     TRANSIENTS = "transients"
+    RAREST = "rarest"
 
 
 class ArgSurfaceType(enum.Enum):

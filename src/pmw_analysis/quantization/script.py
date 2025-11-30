@@ -23,7 +23,8 @@ from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COL
     ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
     DIR_NO_SUN_GLINT, ArgSurfaceType, COLUMN_BREAKPOINT, COLUMN_CATEGORY, \
     FILE_DF_FINAL_WITHOUT_NEWEST, COLUMN_SUN_GLINT_ANGLE_HF, COLUMN_SUN_GLINT_ANGLE_LF, SUN_GLINT_PRESENCE_RANGE, \
-    QUALITY_FLAG_NON_NORMAL_STATUS_MODE, COLUMN_TEMP_2M_INDEX, Stats, FILE_DF_FINAL_WITHOUT_OLDEST, FILE_DF_FINAL_OLDEST
+    QUALITY_FLAG_NON_NORMAL_STATUS_MODE, COLUMN_TEMP_2M_INDEX, Stats, FILE_DF_FINAL_WITHOUT_OLDEST, \
+    FILE_DF_FINAL_OLDEST, FILE_DF_FINAL_RAREST, FILE_DF_FINAL_WITHOUT_RAREST
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.processing.filter import filter_by_flag_values, filter_by_value_range
 from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, quantize_pmw_features, \
@@ -635,6 +636,31 @@ def get_transients(path: pathlib.Path, transform: Callable, k: int | None, timed
         df_no_sun_glint.write_parquet(dir_no_sun_glint / file_name)
 
 
+def get_rarest(path: pathlib.Path, transform: Callable, max_count: int):
+    quant_columns = transform(TC_COLUMNS)
+
+    df_id = pl.read_parquet(path / FILE_DF_FINAL)
+    df_id_rarest = df_id.filter(pl.col(COLUMN_COUNT) <= max_count)
+
+    df_id_without_rarest = df_id.join(df_id_rarest, on=quant_columns, how="anti")
+    df_id_without_rarest.write_parquet(path / FILE_DF_FINAL_WITHOUT_RAREST)
+
+    dir_no_sun_glint = path / DIR_NO_SUN_GLINT
+    dir_no_sun_glint.mkdir(parents=True, exist_ok=True)
+
+    df = _get_bucket_data_for_ids([df_id_rarest], transform)[0]
+
+    file_name = FILE_DF_FINAL_RAREST
+
+    # TODO: fix copy-pasting from `get_transients`
+    df = create_occurrence_column(df)
+    df, sun_glint_column = retrieve_possible_sun_glint(df)
+    df.write_parquet(path / file_name)
+
+    df_no_sun_glint = df.filter(~pl.col(sun_glint_column)).drop(sun_glint_column)
+    df_no_sun_glint.write_parquet(dir_no_sun_glint / file_name)
+
+
 def _get_bucket_data_for_ids(df_id_list: List[pl.DataFrame], transform: Callable) -> List[pl.DataFrame]:
     id_columns = [COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID]
     quant_columns = transform(TC_COLUMNS)
@@ -776,7 +802,8 @@ def main():
                         help="The time period as a timedelta for acquiring observations based on transient signatures")
     parser.add_argument("--filter-by-quality", type=bool, default=True,
                         help="If true, data is filtered by sun glint angle and quality flags")
-
+    parser.add_argument("--rarest-max-count", type=int,
+                        help="The maximum allowed count for signature to be considered one of the rarest")
     args = parser.parse_args()
 
     assert not (args.year is None and args.month is not None)
@@ -814,6 +841,8 @@ def main():
 
             transients_timedelta = datetime.timedelta(days=args.transients_timedelta_days)
             get_transients(path, transform, args.transients_k, transients_timedelta)
+        case ArgQuantizationStep.RAREST:
+            get_rarest(path, transform, args.rarest_max_count)
         case _:
             raise ValueError(f"{args.step.value} is not supported.")
 
