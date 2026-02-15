@@ -161,12 +161,12 @@ def analyze(path: pathlib.Path, occurrence_stat: Stats, var: str | None, transfo
     if VARIABLE_SURFACE_TYPE_INDEX in df_merged.columns:
         groups = [
                      (None, None, None),
-                     ("Ocean (Group)", ST_GROUP_OCEAN, "navy"),
-                     ("Vegetation (Group)", ST_GROUP_VEGETATION, "darkgreen"),
-                     ("Snow (Group)", ST_GROUP_SNOW, "rebeccapurple"),
-                     ("Edges (Group)", ST_GROUP_EDGES, None),
-                     ("Misc (Group)", ST_GROUP_MISC, None),
-                 ] + [(st.replace("/", "_"), st, None) for st in ST_COLUMNS]
+                     # ("Ocean (Group)", ST_GROUP_OCEAN, "navy"),
+                     # ("Vegetation (Group)", ST_GROUP_VEGETATION, "darkgreen"),
+                     # ("Snow (Group)", ST_GROUP_SNOW, "rebeccapurple"),
+                     # ("Edges (Group)", ST_GROUP_EDGES, None),
+                     # ("Misc (Group)", ST_GROUP_MISC, None),
+                 ] #+ [(st.replace("/", "_"), st, None) for st in ST_COLUMNS]
     else:
         groups = [(None, None, None)]
 
@@ -262,6 +262,8 @@ def _analyze_surface_type_group(df, df_transients, feature_columns, group, var, 
 
     params = ref_params if ref_params is not None else HistogramsMatrixParameters(n_bins, feature_ranges)
     hists_mtx, alpha_mtx = _calculate_pairplots_concat_matrix(df_to_use, feature_columns, params, var)
+    if group_name is None:
+        alpha_mtx = np.ones_like(alpha_mtx)
     if df_to_use_transients is not None:
         hists_mtx_transients, _ = _calculate_pairplots_concat_matrix(df_to_use_transients, feature_columns, params,
                                                                      var=var)

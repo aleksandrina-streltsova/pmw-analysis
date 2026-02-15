@@ -1,0 +1,4 @@
+transform: v1
+agg-off-cols: ["lon", "lat", "gpm_id", "gpm_cross_track_id"]
+l2-l3-columns: analysis_minimum
+transients-timedelta-days: 730

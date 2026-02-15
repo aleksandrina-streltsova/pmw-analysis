@@ -9,7 +9,9 @@ from scipy.spatial import KDTree
 from tqdm import tqdm
 
 from pmw_analysis.constants import COLUMN_SUFFIX_QUANT, COLUMN_COUNT, ArgTransform, ArgSurfaceType, DIR_PMW_ANALYSIS, \
-    TC_COLUMNS, FILE_DF_FINAL, FILE_DF_FINAL_NEWEST
+    TC_COLUMNS, FILE_DF_FINAL, FILE_DF_FINAL_NEWEST, Stats, COLUMN_OCCURRENCE, COLUMN_TIME, FILE_DF_FINAL_RAREST, \
+    FILE_DF_FINAL_WITHOUT_RAREST
+from pmw_analysis.quantization.dataframe_polars import expand_occurrence_column, get_agg_column
 from pmw_analysis.quantization.script import get_transformation_function
 from pmw_analysis.utils.logging import timing
 
@@ -25,14 +27,22 @@ def main():
     quant_columns = transform(TC_COLUMNS)
     quant_columns_suffixed = [f"{col}{COLUMN_SUFFIX_QUANT}" for col in quant_columns]
 
+    filename = FILE_DF_FINAL_RAREST
+
+    max_count = 4
+
+    df_rarest = pl.read_parquet(df_dir_path / filename)
     df_final = pl.read_parquet(df_dir_path / FILE_DF_FINAL)
-    df_newest = pl.read_parquet(df_dir_path / FILE_DF_FINAL_NEWEST)
+    df_without_rarest = df_final.filter(pl.col(COLUMN_COUNT) > max_count)
 
-    df_newest_agg = df_newest.group_by(quant_columns_suffixed).agg(pl.len().alias(COLUMN_COUNT))[:10000]
-    df_newest_agg_nbr_count = count_neighbors(df_final, df_newest_agg, quant_columns, quant_columns_suffixed)
+    df_rarest_agg = df_rarest.group_by(quant_columns_suffixed).agg(pl.len().alias(COLUMN_COUNT))
+    df_rarest_agg = df_rarest_agg.filter(pl.col(COLUMN_COUNT) <= max_count)
+    df_rarest = df_rarest.join(df_rarest_agg[quant_columns_suffixed], on=quant_columns_suffixed, how="right")
 
-    df_newest_nbr_count = df_newest.join(df_newest_agg_nbr_count, on=quant_columns_suffixed, how="left")
-    df_newest_nbr_count.write_parquet(df_dir_path / "final_newest_nbr_count.parquet")
+    df_rarest_agg_nbr_count = count_neighbors(df_without_rarest, df_rarest_agg, quant_columns, quant_columns_suffixed)
+
+    df_newest_nbr_count = df_rarest.join(df_rarest_agg_nbr_count, on=quant_columns_suffixed, how="left")
+    df_newest_nbr_count.write_parquet(df_dir_path / f"{filename[:filename.find('.')]}_{max_count}_nbr_count.parquet")
 
 
 def count_neighbors(df: pl.DataFrame, df_query: pl.DataFrame,
@@ -129,7 +139,7 @@ def _count_neighbors_radius_batched(indices: Iterable[np.ndarray], weight: np.nd
 
         # --- flatten this batch ---
         batch_indices = indices[start:end]
-        flat_idx = np.concatenate(batch_indices)
+        flat_idx = np.concatenate(batch_indices).astype(np.int64)
 
         # --- build offsets for this batch ---
         sizes = np.array([len(i) for i in batch_indices])
