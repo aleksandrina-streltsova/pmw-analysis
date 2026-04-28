@@ -1,15 +1,19 @@
 """
 Script for clustering quantized transformed data.
 """
+import itertools
 import logging
 import pathlib
 import pickle
+from datetime import datetime
 from typing import Callable, Tuple, Any
 
 import configargparse
 import hdbscan
 import joblib
 import polars as pl
+import pycolorbar
+import numpy as np
 import torch
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
@@ -22,7 +26,7 @@ from umap.umap_ import nearest_neighbors
 
 from pmw_analysis.constants import COLUMN_COUNT, DIR_PMW_ANALYSIS, ST_COLUMNS, ST_GROUP_VEGETATION, \
     ST_GROUP_OCEAN, ST_GROUP_SNOW, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES, ArgSurfaceType, \
-    FILE_DF_FINAL, DIR_MODEL
+    FILE_DF_FINAL, DIR_MODEL, ST_GROUP_EDGES, ST_GROUP_MISC
 from pmw_analysis.constants import VARIABLE_SURFACE_TYPE_INDEX, TC_COLUMNS
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.copypaste.wpca import WPCA
@@ -188,7 +192,15 @@ def clusterize(df_path: pathlib.Path,
     #
     # transform = get_transformation_function(args_transform)
     # df_path = pathlib.Path(PMW_ANALYSIS_DIR) / args_transform / "final.parquet"
-    #
+    arg_transform = ArgTransform.V4
+    arg_surface_type = ArgSurfaceType.LAND
+    df_dir_path = pathlib.Path(DIR_PMW_ANALYSIS) / arg_transform.value / arg_surface_type.value
+
+    transform = get_transformation_function(arg_transform)
+    df_path = df_dir_path / "final_extra.parquet"
+    clustering = ArgClustering.KMEANS
+    reduction = ArgDimensionalityReduction.UMAP
+
     model_dir_path = combine_paths(path_base=DIR_MODEL, path_rel=df_path, path_rel_base=DIR_PMW_ANALYSIS)
     model_dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -199,15 +211,15 @@ def clusterize(df_path: pathlib.Path,
     df_merged: pl.DataFrame = pl.read_parquet(df_path)
     feature_columns = transform(TC_COLUMNS)
 
-    df = df_merged[feature_columns + [COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX]]
+    df = df_merged
     # df = merge_quantized_pmw_features([df], quant_columns=feature_columns)
     df = df.drop_nans(feature_columns)
+    df = df.with_columns(pl.col("peaks").dt.timestamp("ms").alias("peaks_timestamp"))
 
     column_cum_prob = "cum_prob"
     df = df.with_columns(pl.col(COLUMN_COUNT).cast(pl.Float64))
     df = df.sort(COLUMN_COUNT, descending=False)
     df = df.with_columns((pl.col(COLUMN_COUNT).cum_sum() / pl.col(COLUMN_COUNT).sum()).alias(column_cum_prob))
-
     # reduction = ArgDimensionalityReduction.UMAP
     # clustering = ArgClustering.KMEANS
 
@@ -215,108 +227,164 @@ def clusterize(df_path: pathlib.Path,
         df_train = df.filter(pl.col(column_cum_prob) > 0.05)
         logging.info("%d/%d rows after filtering", len(df_train), len(df))
     else:
-        df_train = df
+        df_train = df[::10]
 
-    weight_train = df_train[COLUMN_COUNT] if use_weights else pl.ones(len(df_train), eager=True)
-    features_train = df_train[feature_columns]
+    for i, params in enumerate(itertools.product([50, 100, 150, 200], [0.0, 0.5, 0.95], [500])):
+        if i < 1:
+            continue
+        n_neighbors, min_dist, max_iter = params
 
-    with timing("Scaling features (train)"):
-        scaler = StandardScaler()
-        features_train_scaled = scaler.fit_transform(features_train, sample_weight=weight_train)
+        weight_train = df_train[COLUMN_COUNT] if use_weights else pl.ones(len(df_train), eager=True)
+        features_train = df_train[feature_columns]
 
-    with timing("Reducing dimensionality (train)"):
-        match reduction:
-            case ArgDimensionalityReduction.PCA:
-                features_train_reduced, reducer = _pca_fit_transform(features_train_scaled,
-                                                                     weight_train if use_weights else None,
-                                                                     n_components=None)
-            case ArgDimensionalityReduction.UMAP:
-                features_train_reduced, reducer = _umap_fit_transform(features_train_scaled,
-                                                                      n_components=2, max_iter=500,
-                                                                      n_neighbors=200, min_dist=0.95,
-                                                                      knn_dir_path=model_dir_path)
-            case _:
-                raise ValueError(f"{reduction.value} is not supported.")
+        with timing("Scaling features (train)"):
+            scaler = StandardScaler()
+            features_train_scaled = scaler.fit_transform(features_train, sample_weight=weight_train)
 
-    with timing("Clustering (train)"):
-        match clustering:
-            case ArgClustering.KMEANS:
-                n_clusters = 4
-                clusterer = KMeans(n_clusters=n_clusters)
-                clusterer.fit(features_train_reduced, sample_weight=weight_train)
-            case ArgClustering.HDBSCAN:
-                clusterer_base = hdbscan.HDBSCAN(min_cluster_size=100, prediction_data=True)
-                clusterer_base.fit(features_train_reduced)
+        with timing("Reducing dimensionality (train)"):
+            match reduction:
+                case ArgDimensionalityReduction.PCA:
+                    features_train_reduced, reducer = _pca_fit_transform(features_train_scaled,
+                                                                         weight_train if use_weights else None,
+                                                                         n_components=None)
+                case ArgDimensionalityReduction.UMAP:
+                    features_train_reduced, reducer = _umap_fit_transform(features_train_scaled,
+                                                                          n_components=2, max_iter=max_iter,
+                                                                          n_neighbors=n_neighbors, min_dist=min_dist,
 
-                labels_train = hdbscan.approximate_predict(clusterer_base, features_train_reduced)[0]
+                                                                          knn_dir_path=model_dir_path)
+                case _:
+                    raise ValueError(f"{reduction.value} is not supported.")
 
-                clusterer = CLusterIndexModel(features_train_reduced, labels_train)
-                n_clusters = labels_train.max() + 1
-            case _:
-                raise ValueError(f"{clustering.value} is not supported.")
+        with timing("Clustering (train)"):
+            match clustering:
+                case ArgClustering.KMEANS:
+                    n_clusters = 1
+                    clusterer = KMeans(n_clusters=n_clusters)
+                    clusterer.fit(features_train_reduced, sample_weight=weight_train)
+                case ArgClustering.HDBSCAN:
+                    clusterer_base = hdbscan.HDBSCAN(min_cluster_size=100, prediction_data=True)
+                    clusterer_base.fit(features_train_reduced)
 
-    final_model = ClusterModel(scaler, reducer, clusterer)
-    final_model.save(model_dir_path / f"{reduction}_{clustering}.pkl")
+                    labels_train = hdbscan.approximate_predict(clusterer_base, features_train_reduced)[0]
 
-    with timing("Scaling features"):
-        features_scaled = scaler.transform(df[feature_columns])
-    with timing("Reducing dimensionality"):
-        features_reduced = reducer.transform(features_scaled)
-    with timing("Clustering"):
-        labels = clusterer.predict(features_reduced)
+                    clusterer = CLusterIndexModel(features_train_reduced, labels_train)
+                    n_clusters = labels_train.max() + 1
+                case _:
+                    raise ValueError(f"{clustering.value} is not supported.")
 
-    #### Plotting ####
-    use_log_norm = False
+        file_suffix = f"_{n_neighbors}_{min_dist}_{max_iter}_{len(df_train)}" \
+            if reduction == ArgDimensionalityReduction.UMAP else ""
+        title_suffix = f" (n_neighbors = {n_neighbors}, min_dist = {min_dist}, max_iter = {max_iter})" \
+            if reduction == ArgDimensionalityReduction.UMAP else ""
 
-    images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(df_path), path_rel_base=DIR_PMW_ANALYSIS)
-    images_dir.mkdir(parents=True, exist_ok=True)
+        final_model = ClusterModel(scaler, reducer, clusterer)
+        final_model.save(model_dir_path / f"{reduction.value}_{clustering.value}{file_suffix}.pkl")
 
-    # density plot
-    file_path = images_dir / f'{reduction}_{clustering}_count.png'
-    hist_data_count = [
-        HistogramData(data=features_reduced, weight=df[COLUMN_COUNT], title="All surfaces", alpha=1.0,
-                      cmap="rocket_r", color=None, x_label="Component 1", y_label="Component 2")
-    ]
-    plot_histograms2d(hist_data_count, path=file_path, title=reduction.value.upper(),
-                      bins=N_BINS, use_log_norm=use_log_norm)
+        with timing("Scaling features"):
+            # features_scaled = features_train_scaled
+            features_scaled = scaler.transform(df[feature_columns])
+        with timing("Reducing dimensionality"):
+            # features_reduced = features_train_reduced
+            features_reduced = reducer.transform(features_scaled)
+        with timing("Clustering"):
+            # labels = np.ones(len(features_scaled))
+            labels = clusterer.predict(features_reduced)
 
-    # clustering results
-    file_path = images_dir / f'{reduction}_{clustering}.png'
-    hist_datas = [
-        HistogramData(data=features_reduced[labels == cluster],
-                      weight=df[COLUMN_COUNT].filter(labels == cluster),
-                      title=f"Cluster {cluster}",
-                      alpha=0.8, cmap=None, color=None, x_label="Component 1", y_label="Component 2")
-        for cluster in range(n_clusters)
-    ]
-    clustering_title = "KMeans++" if clustering == ArgClustering.KMEANS else "HDBSCAN"
-    plot_histograms2d(hist_datas, path=file_path, title=clustering_title, bins=N_BINS,
-                      use_log_norm=use_log_norm, use_shared_norm=False)
+        #### Plotting ####
+        use_log_norm = True
 
-    # reference data
-    df = df.with_columns(
-        pl.Series("x", features_reduced[:, 0]),
-        pl.Series("y", features_reduced[:, 1]),
-    )
-    file_path = images_dir / f'{reduction}_{clustering}_ref.png'
-    hist_datas_ref = []
-    groups = [
-        ("Ocean (Group)", ST_GROUP_OCEAN, "navy"),
-        ("Vegetation (Group)", ST_GROUP_VEGETATION, "darkgreen"),
-        ("Snow (Group)", ST_GROUP_SNOW, "magenta"),
-    ]
-    for group in tqdm(groups):
-        name, surface_types, color = group
-        flag_values = [idx_st + 1 for idx_st, st in enumerate(ST_COLUMNS) if st in surface_types]
+        images_dir = combine_paths(path_base=DIR_IMAGES, path_rel=file_to_dir(df_path), path_rel_base=DIR_PMW_ANALYSIS)
+        images_dir.mkdir(parents=True, exist_ok=True)
 
-        df_to_use = filter_by_flag_values(df, VARIABLE_SURFACE_TYPE_INDEX, flag_values)
-        df_to_use = df_to_use.filter(df_to_use[COLUMN_COUNT].is_not_null())
+        # density plot
+        file_path = images_dir / f'count_{reduction.value}_{clustering.value}{file_suffix}.png'
+        hist_data_count = [
+            HistogramData(data=features_reduced, weight=df[COLUMN_COUNT], title=f"All surfaces{title_suffix}", alpha=1.0,
+                          cmap="rocket_r", color=None, x_label="Component 1", y_label="Component 2")
+        ]
+        plot_histograms2d(hist_data_count, path=file_path, title=reduction.value.upper(),
+                          bins=N_BINS, use_log_norm=use_log_norm)
 
-        hist_datas_ref.append(HistogramData(data=df_to_use[["x", "y"]], weight=df_to_use[COLUMN_COUNT], title=name,
-                                            alpha=0.8, cmap=None, color=color,
-                                            x_label="Component 1", y_label="Component 2"))
-    plot_histograms2d(hist_datas_ref, file_path, title="Reference", bins=N_BINS,
-                      use_log_norm=use_log_norm, use_shared_norm=False)
+
+        # clustering results
+        # file_path = images_dir / f'{reduction.value}_{clustering.value}{file_suffix}.png'
+        # hist_datas = [
+        #     HistogramData(data=features_reduced[labels == cluster],
+        #                   weight=df[COLUMN_COUNT].filter(labels == cluster),
+        #                   title=f"Cluster {cluster}",
+        #                   alpha=0.8, cmap=None, color=None, x_label="Component 1", y_label="Component 2")
+        #     for cluster in range(n_clusters)
+        # ]
+        # clustering_title = "KMeans++" if clustering == ArgClustering.KMEANS else "HDBSCAN"
+        # plot_histograms2d(hist_datas, path=file_path, title=clustering_title, bins=N_BINS,
+        #                   use_log_norm=use_log_norm, use_shared_norm=False)
+
+        # reference data
+        df = df.with_columns(
+            pl.Series("x", features_reduced[:, 0]),
+            pl.Series("y", features_reduced[:, 1]),
+        )
+        file_path = images_dir / f'{reduction.value}_{clustering.value}_ref{file_suffix}.png'
+        hist_datas_ref = []
+        groups = [
+            # ("Ocean (Group)", ST_GROUP_OCEAN, "navy"),
+            ("Vegetation (Group)", ST_GROUP_VEGETATION, "darkgreen"),
+            ("Snow (Group)", ST_GROUP_SNOW, "magenta"),
+            ("Edges (Group)", ST_GROUP_EDGES, None),
+            ("Misc (Group)", ST_GROUP_MISC, None),
+        ]
+        for group in tqdm(groups):
+            name, surface_types, color = group
+            flag_values = [idx_st + 1 for idx_st, st in enumerate(ST_COLUMNS) if st in surface_types]
+
+            df_to_use = filter_by_flag_values(df, VARIABLE_SURFACE_TYPE_INDEX, flag_values)
+            df_to_use = df_to_use.filter(df_to_use[COLUMN_COUNT].is_not_null())
+
+            hist_datas_ref.append(HistogramData(data=df_to_use[["x", "y"]], weight=df_to_use[COLUMN_COUNT], title=name,
+                                                alpha=0.8, cmap=None, color=color,
+                                                x_label="Component 1", y_label="Component 2"))
+        plot_histograms2d(hist_datas_ref, file_path, title="Reference", bins=N_BINS,
+                          use_log_norm=use_log_norm, use_shared_norm=False)
+
+        # reference data (surface type)
+        file_path = images_dir / f'{reduction.value}_{clustering.value}_ref_st{file_suffix}.png'
+        hist_datas_ref = []
+        st_cmap = pycolorbar.get_cmap("surfaceTypeIndexPalette")
+        for idx, column_st in tqdm(enumerate(ST_COLUMNS)):
+            df_to_use = filter_by_flag_values(df, VARIABLE_SURFACE_TYPE_INDEX, [idx + 1])
+            if len(df_to_use) == 0:
+                continue
+            color = st_cmap.colors[idx]
+
+            hist_datas_ref.append(HistogramData(data=df_to_use[["x", "y"]], weight=df_to_use[COLUMN_COUNT], title=column_st,
+                                                alpha=0.8, cmap=None, color=color,
+                                                x_label="Component 1", y_label="Component 2"))
+        plot_histograms2d(hist_datas_ref, file_path, title="Reference", bins=N_BINS,
+                          use_log_norm=use_log_norm, use_shared_norm=False)
+
+        # occurrence class + peaks
+        for column in ["occurrence_class", "peaks_timestamp"]:
+            file_path = images_dir / f'{reduction.value}_{clustering.value}_{column}{file_suffix}.png'
+            hist_datas_ref = []
+
+            unique_values = np.sort(df[column].value_counts()[column].to_numpy())
+            for idx, unique_value in tqdm(enumerate(unique_values)):
+                if not isinstance(unique_value, str) and np.isnan(unique_value):
+                    flag_value = None
+                else:
+                    flag_value = unique_value
+                df_to_use = filter_by_flag_values(df, column, flag_value, nulls_equal=True)
+                if len(df_to_use) == 0:
+                    continue
+                title = unique_value if column != "peaks_timestamp" or np.isnan(unique_value) \
+                    else datetime.fromtimestamp(unique_value / 1000)
+                hist_datas_ref.append(
+                    HistogramData(data=df_to_use[["x", "y"]], weight=df_to_use[COLUMN_COUNT], title=title,
+                                  alpha=0.8, cmap=None, color=None,
+                                  x_label="Component 1", y_label="Component 2"))
+            plot_histograms2d(hist_datas_ref, file_path, title=f"Reference: {column}", bins=N_BINS,
+                              use_log_norm=use_log_norm, use_shared_norm=False)
 
 
 def main():

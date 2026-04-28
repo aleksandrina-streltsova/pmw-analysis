@@ -1,4 +1,4 @@
-from typing import Sequence, Tuple, List
+from typing import Sequence, Tuple, List, Any
 
 import numpy as np
 import polars as pl
@@ -24,17 +24,19 @@ def filter_by_signature_occurrences_count(df: pl.DataFrame,
 
     return df_m
 
-def filter_by_flag_values(df, flag_column: str, flag_value: int | List[int], filter_out: bool = False) -> pl.DataFrame:
+
+def filter_by_flag_values(df, flag_column: str, flag_value: Any | List[Any],
+                          filter_out: bool = False, nulls_equal: bool = False) -> pl.DataFrame:
     """
     Filter rows in data frame leaving only those with the specified flag value.
     """
-    if isinstance(flag_value, int):
-        flag_values = [flag_value]
-    else:
+    if isinstance(flag_value, List):
         flag_values = set(flag_value)
+    else:
+        flag_values = [flag_value]
 
     if df[flag_column].dtype == pl.List:
-        filter_expr = pl.element().struct.field(flag_column).is_in(flag_values)
+        filter_expr = pl.element().struct.field(flag_column).is_in(flag_values, nulls_equal=nulls_equal)
         if filter_out:
             filter_expr = filter_expr.not_()
 
@@ -44,7 +46,7 @@ def filter_by_flag_values(df, flag_column: str, flag_value: int | List[int], fil
             ).list.first().struct.field(STRUCT_FIELD_COUNT).alias(COLUMN_COUNT)
         ).filter(pl.col(COLUMN_COUNT) > 0)
     else:
-        filter_expr = pl.col(flag_column).is_in(flag_values)
+        filter_expr = pl.col(flag_column).is_in(flag_values, nulls_equal=nulls_equal)
         if filter_out:
             filter_expr = filter_expr.not_()
 

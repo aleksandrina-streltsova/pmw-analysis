@@ -71,6 +71,14 @@ TC_COLUMNS = ["Tc_10H", "Tc_10V",
 AGG_OFF_COLUMNS = [COLUMN_LON, COLUMN_LAT,
                    COLUMN_GPM_ID, COLUMN_GPM_CROSS_TRACK_ID]
 
+COLUMNS_TO_DROP = [
+    "gpm_id",
+    "gpm_granule_id",
+    "gpm_cross_track_id",
+    "gpm_along_track_id",
+    "orbit_mode",
+]
+
 ST_COLUMNS = ['Ocean',
               'Sea-Ice',
               'High vegetation',
@@ -163,6 +171,7 @@ class ArgEDA(enum.Enum):
 
 class ArgQuantizationStep(enum.Enum):
     FACTOR = "factor"
+    STATISTICS = "statistics"
     QUANTIZE = "quantize"
     MERGE = "merge"
     TRANSIENTS = "transients"

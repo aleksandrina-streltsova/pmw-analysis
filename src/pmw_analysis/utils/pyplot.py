@@ -28,6 +28,39 @@ def scatter_na(x, y, c, color_label: str = None):
     plt.colorbar(scatter, label=color_label)
 
 
+def plot_histogram(hist: np.ndarray, bin_edges: np.ndarray,
+                   title: str, x_label: str, y_label: str):
+    plt.bar(bin_edges[:-1], hist, width=np.diff(bin_edges), color="blue")
+
+    plt.xlim([bin_edges[0], bin_edges[-1]])
+    ylim_delta = (hist.max() - hist.min()) * 0.01
+    plt.ylim([hist.min() - ylim_delta, hist.max() + ylim_delta])
+
+    plt.xticks(rotation=90)
+    plt.title(title)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+
+
+def plot_histogram2d(ax, hist, use_log_norm, x_ticks, x_tick_labels, y_ticks, y_tick_labels,
+                     title, x_label, y_label, cmap):
+    vmin = hist.min()
+    vmax = hist.max()
+
+    if use_log_norm:
+        vmin = max(1, vmin)
+        norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
+    else:
+        norm = None
+
+    sns.heatmap(hist, vmin=vmin, vmax=vmax, cmap=cmap, norm=norm, annot=False, ax=ax)
+    ax.set_xticks(x_ticks, x_tick_labels, rotation=90)
+    ax.set_yticks(y_ticks, y_tick_labels, rotation=0)
+    ax.set_title(title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+
+
 def subplots(nrows: int, ncols: int, xscale: int = 3, yscale: int = 3):
     """
     Create a figure and a set of subplots, adjusting the figure size based on the number of rows and columns.
@@ -135,15 +168,6 @@ def plot_histograms2d(hist_datas: List[HistogramData], path: Path, title: str,
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4 * ncols + 2, 4 * nrows + 1))
 
     for i, (hist_data, hist) in enumerate(zip(hist_datas, hists)):
-        vmin = hist.min()
-        vmax = hist.max()
-
-        if use_log_norm:
-            vmin = max(1, vmin)
-            norm = mcolors.LogNorm(vmin=vmin, vmax=vmax)
-        else:
-            norm = None
-
         if ncols == 1:
             if nrows == 1:
                 ax: plt.Axes = axes
@@ -152,12 +176,8 @@ def plot_histograms2d(hist_datas: List[HistogramData], path: Path, title: str,
         else:
             ax: plt.Axes = axes[i // ncols][i % ncols]
 
-        sns.heatmap(hist, vmin=vmin, vmax=vmax, cmap=hist_data.cmap, norm=norm, annot=False, ax=ax)
-        ax.set_xticks(x_ticks, x_tick_labels, rotation=90)
-        ax.set_yticks(y_ticks, y_tick_labels, rotation=0)
-        ax.set_title(hist_data.title)
-        ax.set_xlabel(hist_data.x_label)
-        ax.set_ylabel(hist_data.y_label)
+        plot_histogram2d(ax, hist, use_log_norm, x_ticks, y_ticks, x_tick_labels, y_tick_labels,
+                         hist_data.title, hist_data.x_label, hist_data.y_label, hist_data.cmap)
     fig.suptitle(title)
     fig.tight_layout()
     fig.savefig(path)
