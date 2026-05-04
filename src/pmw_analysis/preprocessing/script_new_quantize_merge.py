@@ -4,19 +4,13 @@ Script for performing quantization on data from bucket.
 import logging
 import pathlib
 import pickle
+from datetime import datetime
 from typing import Dict, Callable, Iterable
 
 import configargparse
 import gpm
 import gpm.bucket
 import polars as pl
-from quantization.aggregation import AggregationPlan, AggMax, AggMean, AggMin
-from quantization.api import quantize_streaming, merge_streaming, collect_frame_statistics, \
-    finalize_quant_column_configs
-from quantization.config import QuantizationConfig
-from quantization.quant_columns import FixedStepQuantColumnConfig, UncertaintyQuantColumnConfig
-from quantization.types import Frame, FrameStatistics
-
 from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, \
     COLUMN_TIME, COLUMNS_TO_DROP, \
     ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
@@ -27,6 +21,13 @@ from pmw_analysis.preprocessing.aggregation_defaults import build_default_per_co
 from pmw_analysis.preprocessing.dataframe_polars import get_uncertainties_dict
 from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.processing.filter import filter_by_value_range
+from quantization.aggregation import AggregationPlan, AggMax, AggMean, AggMin
+from quantization.api import collect_frame_statistics, quantize_streaming, merge_streaming, \
+    finalize_quant_column_configs
+from quantization.config import QuantizationConfig
+from quantization.constants import COLUMN_SUFFIX_QUANT
+from quantization.quant_columns import FixedStepQuantColumnConfig, UncertaintyQuantColumnConfig
+from quantization.types import Frame, FrameStatistics
 
 FULL_EXTENT = [-180, 180, -90, 90]
 QUANTIZATION_CHUNK_SIZE = 200_000_000
@@ -43,22 +44,29 @@ def _prepare_for_quantization(frame: Frame) -> Frame:
 
     return frame
 
-
 def _replace_special_missing_values_with_null(frame: Frame) -> Frame:
-    columns = frame.collect_schema().names()
-    replacements = {
-        COLUMN_SUN_GLINT_ANGLE_LF: {-99: None, -9999: None, -88: None},
-        COLUMN_SUN_GLINT_ANGLE_HF: {-99: None, -9999: None, -88: None},
-    }
-    frame_result = frame.with_columns(
-        [
-            pl.col(col).replace(replacements.get(col, {-99: None, -9999: None}))
-            for col in columns
-            if col != COLUMN_LON
-        ] + [pl.col(COLUMN_LON).replace(-9999, None)]
-    )
+    schema = frame.collect_schema()  # {col: dtype}
 
-    return frame_result
+    special_values = {
+        COLUMN_SUN_GLINT_ANGLE_LF: [-99, -9999, -88],
+        COLUMN_SUN_GLINT_ANGLE_HF: [-99, -9999, -88],
+    }
+
+    int_types = {pl.Int8, pl.Int16, pl.Int32, pl.Int64}
+
+    exprs = [
+        pl.when(pl.col(col).is_in(special_values.get(col, [-99, -9999])))
+          .then(None)
+          .otherwise(pl.col(col))
+          .alias(col)
+        for col, dtype in schema.items()
+        if col != COLUMN_LON and dtype in int_types
+    ]
+
+    if schema.get(COLUMN_LON) in int_types:
+        exprs.append(pl.col(COLUMN_LON).replace(-9999, None))
+
+    return frame.with_columns(exprs)
 
 
 def _get_agg_plan(columns: Iterable[str]) -> AggregationPlan:
@@ -304,7 +312,11 @@ def _get_clip_range_from_frame_statistics(frame_statistics: FrameStatistics, col
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
+    log_dir = pathlib.Path("logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    logging.basicConfig(filename=log_path, level=logging.INFO)
+    print(f"Logging to {log_path}")
 
     parser = configargparse.ArgumentParser(config_arg_is_required=True, args_for_setting_config_path=["--config"],
                                            description="Run quantization (quantize/merge only)")
