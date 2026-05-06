@@ -21,6 +21,7 @@ from pmw_analysis.preprocessing.aggregation_defaults import build_default_per_co
 from pmw_analysis.preprocessing.dataframe_polars import get_uncertainties_dict
 from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.processing.filter import filter_by_value_range
+from pmw_analysis.utils.logging import timing
 from quantization.aggregation import AggregationPlan, AggMax, AggMean, AggMin
 from quantization.api import collect_frame_statistics, quantize_streaming, merge_streaming, \
     finalize_quant_column_configs
@@ -30,8 +31,9 @@ from quantization.quant_columns import FixedStepQuantColumnConfig, UncertaintyQu
 from quantization.types import Frame, FrameStatistics
 
 FULL_EXTENT = [-180, 180, -90, 90]
-QUANTIZATION_CHUNK_SIZE = 200_000_000
-MAX_N_FINAL = 2 * 10 ** 10
+CHUNK_SIZE_QUANTIZE = 100_000_000
+CHUNK_SIZE_MERGE = 10_000_000
+MAX_N_FINAL = 10_000_000
 FILE_FRAME_STATISTICS = "frame_statistics.pkl"
 FILE_QUANTIZATION_CONFIG = "quantization_config.pkl"
 
@@ -209,7 +211,7 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, cli
     quantize_streaming(
         frame=frame_prepared,
         config=config,
-        chunk_size=QUANTIZATION_CHUNK_SIZE,
+        chunk_size=CHUNK_SIZE_QUANTIZE,
     )
 
 
@@ -248,7 +250,7 @@ def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Cal
         uncertainties=uncertainty_dict,
         factors=[1.0, 2.0, 4.0, 8.0],
         available_memory_gb=None,
-        chunk_size=QUANTIZATION_CHUNK_SIZE,
+        chunk_size=CHUNK_SIZE_QUANTIZE,
     )
 
     with open(path_frame_statistics, "wb") as file:
@@ -271,7 +273,7 @@ def merge(path: pathlib.Path):
     result = merge_streaming(
         frames_quant=[pl.scan_parquet(p) for p in partial_paths],
         config=config,
-        chunk_size=QUANTIZATION_CHUNK_SIZE,
+        chunk_size=CHUNK_SIZE_MERGE,
     )
     result.write_parquet(path / "final.parquet")
 
@@ -359,15 +361,16 @@ def main():
         path = path / str(args.month)
     path.mkdir(parents=True, exist_ok=True)
 
-    match args.step:
-        case ArgQuantizationStep.STATISTICS:
-            collect_statistics(path, transform, filter_rows)
-        case ArgQuantizationStep.QUANTIZE:
-            quantize(path, transform, filter_rows, args.clip, args.l2_l3_columns)
-        case ArgQuantizationStep.MERGE:
-            merge(path)
-        case _:
-            raise ValueError(f"{args.step.value} is not supported.")
+    with timing(f"Step {args.step}"):
+        match args.step:
+            case ArgQuantizationStep.STATISTICS:
+                collect_statistics(path, transform, filter_rows)
+            case ArgQuantizationStep.QUANTIZE:
+                quantize(path, transform, filter_rows, args.clip, args.l2_l3_columns)
+            case ArgQuantizationStep.MERGE:
+                merge(path)
+            case _:
+                raise ValueError(f"{args.step.value} is not supported.")
 
 
 if __name__ == '__main__':
