@@ -137,6 +137,7 @@ def main(model_path, transform):
     # model_path = pathlib.Path(PMW_ANALYSIS_DIR) / "v2" / f"{reduction}_{clustering}.pkl"
     # transform = get_transformation_function("v2")
 
+    # BUG: boxes are [lat_min, lat_max, lon_min, lon_max], but gpm.bucket.read expects [lon_min, lon_max, lat_min, lat_max].
     extents = [
         [42, 44, 39, 41],  # Sochi, Russia
         [59, 61, 4, 6],  # Bergen, Norway

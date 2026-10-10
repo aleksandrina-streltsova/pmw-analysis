@@ -15,6 +15,7 @@ from pmw_analysis.utils.polars import weighted_quantiles
 
 
 def main():
+    # BUG: boxes are [lat_min, lat_max, lon_min, lon_max], but gpm.bucket.read expects [lon_min, lon_max, lat_min, lat_max].
     extents = [
         [42, 44, 39, 41], # Sochi, Russia
         [59, 61, 4, 6], # Bergen, Norway
