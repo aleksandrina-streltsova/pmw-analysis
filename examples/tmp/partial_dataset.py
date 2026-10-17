@@ -10,6 +10,7 @@ import numpy as np
 from pmw_analysis.constants import DIR_BUCKET, TC_COLUMNS, COLUMN_LON, COLUMN_LAT, DIR_PMW_ANALYSIS, COLUMN_COUNT, \
     COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, ArgTransform, DIR_IMAGES, EXTENTS_SUBSET
 from pmw_analysis.preprocessing.dataframe_polars import quantize_pmw_features, get_uncertainties_dict
+from pmw_analysis.preprocessing.script import get_range_dict
 from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.utils.polars import weighted_quantiles
 
@@ -24,7 +25,7 @@ def main():
     df_partial = pl.concat(dfs_partial)
 
     unc_dict = {col: 1.0 * unc for col, unc in get_uncertainties_dict(TC_COLUMNS).items()}
-    df_partial = quantize_pmw_features(df_partial, unc_dict, TC_COLUMNS)
+    df_partial = quantize_pmw_features(df_partial, TC_COLUMNS, unc_dict, get_range_dict(False))
     df_default = pl.read_parquet(pathlib.Path(DIR_PMW_ANALYSIS) / "default" / "final.parquet")
 
     feature_columns = copy(TC_COLUMNS)
