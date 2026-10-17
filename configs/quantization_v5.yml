@@ -1,0 +1,11 @@
+# Full dataset with transform v5, settings as in the spring 2025 quantization (summary 2026, B2).
+# Run with --step statistics, then --step quantize, then --step merge.
+transform: v5
+dir: /ltenas8/data/PMW_Analysis/summary_2026/b2
+surface-type: all
+filter-by-quality: false
+clip: true
+lat-limit: 70
+# At least 20 000x compression: 21 900 988 866 observations (2018-2023, |lat| <= 70) / 20 000
+max-n-final: 1095049
+factors: [1, 1.5, 2, 3, 4, 6, 8]
