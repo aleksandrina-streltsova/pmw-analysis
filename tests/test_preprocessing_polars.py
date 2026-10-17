@@ -9,7 +9,7 @@ import numpy as np
 import polars as pl
 
 from pmw_analysis.constants import COLUMN_COUNT, STRUCT_FIELD_COUNT, COLUMN_OCCURRENCE, TC_COLUMNS, Stats
-from pmw_analysis.quantization.dataframe_polars import _round, _get_tc_columns, \
+from pmw_analysis.preprocessing.dataframe_polars import _round, _get_tc_columns, \
     _get_special_dict, _aggregate, _get_periodic_dict, merge_quantized_pmw_features, \
     DataFrameQuantizationInfo, get_agg_column
 
@@ -109,7 +109,7 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
 
     def test_round(self) -> None:
         """
-        Unit test for verifying the correctness of the `pmw_analysis.quantization.dataframe_polars._round` function.
+        Unit test for verifying the correctness of the `pmw_analysis.preprocessing.dataframe_polars._round` function.
         """
         tc_columns = _get_tc_columns(_get_test_columns())
 
@@ -143,7 +143,7 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
 
     def test_aggregate(self):
         """
-        Unit test for verifying the correctness of the `pmw_analysis.quantization.dataframe_polars._aggregate` function.
+        Unit test for verifying the correctness of the `pmw_analysis.preprocessing.dataframe_polars._aggregate` function.
         """
         columns = _get_test_columns()
         tc_cols = _get_tc_columns(columns)
@@ -291,7 +291,7 @@ class PreprocessingPolarsTestCase(unittest.TestCase):
     def test_merge(self):
         """
         Unit test for verifying the correctness of the
-        `pmw_analysis.quantization.dataframe_polars.merge_quantized_pmw_features` function.
+        `pmw_analysis.preprocessing.dataframe_polars.merge_quantized_pmw_features` function.
         """
         columns = _get_test_columns()
         tc_cols = _get_tc_columns(columns)

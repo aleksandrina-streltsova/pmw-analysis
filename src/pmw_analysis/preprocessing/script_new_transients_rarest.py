@@ -32,8 +32,8 @@ from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COL
     FILE_DF_FINAL_OLDEST, FILE_DF_FINAL_RAREST, FILE_DF_FINAL_WITHOUT_RAREST
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.processing.filter import filter_by_flag_values, filter_by_value_range
-from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict
-from pmw_analysis.quantization.transforms import get_pd_col, get_ratio_col, get_diff_col, _get_pd_expr, \
+from pmw_analysis.preprocessing.dataframe_polars import get_uncertainties_dict
+from pmw_analysis.preprocessing.transforms import get_pd_col, get_ratio_col, get_diff_col, _get_pd_expr, \
     _get_ratio_expr, _get_diff_expr, _add_pd_unc, _add_ratio_unc, _add_diff_unc, get_transformation_function
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_possible_sun_glint
 from pmw_analysis.utils.io import rmtree

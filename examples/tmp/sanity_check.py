@@ -3,7 +3,7 @@ import polars as pl
 import matplotlib.pyplot as plt
 
 from pmw_analysis.constants import TC_COLUMNS, DIR_PMW_ANALYSIS, COLUMN_COUNT, ArgTransform
-from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.preprocessing.transforms import get_transformation_function
 
 
 def main():

@@ -9,8 +9,8 @@ import numpy as np
 
 from pmw_analysis.constants import DIR_BUCKET, TC_COLUMNS, COLUMN_LON, COLUMN_LAT, DIR_PMW_ANALYSIS, COLUMN_COUNT, \
     COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, ArgTransform, DIR_IMAGES
-from pmw_analysis.quantization.dataframe_polars import quantize_pmw_features, get_uncertainties_dict
-from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.preprocessing.dataframe_polars import quantize_pmw_features, get_uncertainties_dict
+from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.utils.polars import weighted_quantiles
 
 

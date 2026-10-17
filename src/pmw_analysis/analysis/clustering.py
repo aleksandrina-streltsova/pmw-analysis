@@ -31,7 +31,7 @@ from pmw_analysis.constants import VARIABLE_SURFACE_TYPE_INDEX, TC_COLUMNS
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.copypaste.wpca import WPCA
 from pmw_analysis.processing.filter import filter_by_flag_values
-from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.utils.io import combine_paths, file_to_dir
 from pmw_analysis.utils.logging import timing
 from pmw_analysis.utils.pyplot import plot_histograms2d, HistogramData

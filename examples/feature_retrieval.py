@@ -13,7 +13,7 @@ from pmw_analysis.constants import (
     DIM_ALONG_TRACK, COLUMN_TIME, FLAG_SAVEFIG, DIR_IMAGES, PRODUCT_1C_GMI_R,
     PRODUCT_TYPE_RS, VERSION, STORAGE_GES_DISC, VARIABLE_TC, DIM_PMW, TC_COLUMNS,
 )
-from pmw_analysis.quantization.dataframe_pandas import segment_features_into_bins
+from pmw_analysis.preprocessing.dataframe_pandas import segment_features_into_bins
 
 # Define analysis time period
 START_TIME = "2023-10-31 11:20:00"

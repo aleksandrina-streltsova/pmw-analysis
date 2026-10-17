@@ -15,8 +15,8 @@ from pmw_analysis.constants import DIR_BUCKET, COLUMN_CLUSTER, VARIABLE_SURFACE_
     DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES
 from pmw_analysis.analysis.clustering import ClusterModel
 from pmw_analysis.copypaste.utils.cli import EnumAction
-from pmw_analysis.quantization.dataframe_polars import _replace_special_missing_values_with_null
-from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.preprocessing.dataframe_polars import _replace_special_missing_values_with_null
+from pmw_analysis.preprocessing.transforms import get_transformation_function
 
 L2_VARIABLES = ['cloudWaterPath', 'convectivePrecipitation', 'frozenPrecipitation',
                 'probabilityOfPrecip', 'totalColumnWaterVaporIndex']

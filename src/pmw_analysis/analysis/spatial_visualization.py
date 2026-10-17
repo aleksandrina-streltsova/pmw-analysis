@@ -18,8 +18,8 @@ from pycolorbar import get_plot_kwargs
 from pmw_analysis.constants import TC_COLUMNS, COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX, FLAG_SAVEFIG, COLUMN_LON, \
     COLUMN_LAT, COLUMN_LON_BIN, COLUMN_LAT_BIN, ArgTransform, COLUMN_SUN_GLINT_ANGLE_HF, COLUMN_SUN_GLINT_ANGLE_LF, \
     Stats
-from pmw_analysis.quantization.dataframe_polars import get_agg_column
-from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.preprocessing.dataframe_polars import get_agg_column
+from pmw_analysis.preprocessing.transforms import get_transformation_function
 
 
 def plot_variables_on_map(df: pl.DataFrame, transform_arg: ArgTransform, images_dir: pathlib.Path,

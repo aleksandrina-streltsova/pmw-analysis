@@ -25,8 +25,8 @@ from pmw_analysis.constants import (
 )
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.processing.filter import filter_by_flag_values
-from pmw_analysis.quantization.dataframe_polars import expand_occurrence_column, get_agg_column
-from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.preprocessing.dataframe_polars import expand_occurrence_column, get_agg_column
+from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.utils.io import combine_paths, file_to_dir
 from pmw_analysis.utils.polars import get_column_ranges, take_k_sorted
 from pmw_analysis.utils.pyplot import finalize_axis

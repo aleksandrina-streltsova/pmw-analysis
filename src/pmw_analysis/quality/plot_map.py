@@ -18,7 +18,7 @@ from pmw_analysis.constants import PRODUCT_1C_GMI_R, PRODUCT_TYPE_RS, VERSION, \
     DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES
 from pmw_analysis.analysis.clustering import ClusterModel
 from pmw_analysis.copypaste.utils.cli import EnumAction
-from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.utils.pyplot import get_surface_type_cmap
 
 

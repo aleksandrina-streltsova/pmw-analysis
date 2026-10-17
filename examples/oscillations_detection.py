@@ -20,10 +20,10 @@ from pmw_analysis.constants import (
     DIR_IMAGES,
     DIR_BUCKET, TC_COLUMNS, AGG_OFF_COLUMNS, COLUMN_LAT, COLUMN_LON, DIR_PMW_ANALYSIS, Stats, COLUMN_OCCURRENCE,
 )
-from pmw_analysis.quantization.dataframe_pandas import read_time_series_and_drop_nan
-from pmw_analysis.quantization.dataframe_polars import quantize_pmw_features, get_uncertainties_dict, \
+from pmw_analysis.preprocessing.dataframe_pandas import read_time_series_and_drop_nan
+from pmw_analysis.preprocessing.dataframe_polars import quantize_pmw_features, get_uncertainties_dict, \
     expand_occurrence_column, _round, get_agg_column
-from pmw_analysis.quantization.script import get_range_dict
+from pmw_analysis.preprocessing.script import get_range_dict
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_PD
 from pmw_analysis.utils.pandas import timestamp_to_fraction
 from pmw_analysis.utils.pyplot import scatter_na
