@@ -23,6 +23,7 @@ from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.processing.filter import filter_by_value_range
 from pmw_analysis.utils.cli import parse_bool
 from pmw_analysis.utils.logging import timing
+from pmw_analysis.utils.polars import weighted_quantiles
 from quantization.aggregation import AggregationPlan, AggMax, AggMean, AggMin
 from quantization.api import collect_frame_statistics, quantize_streaming, merge_streaming, \
     finalize_quant_column_configs
@@ -35,6 +36,8 @@ FULL_EXTENT = [-180, 180, -90, 90]
 CHUNK_SIZE_QUANTIZE = 100_000_000
 CHUNK_SIZE_MERGE = 10_000_000
 MAX_N_FINAL = 10_000_000
+FACTORS = [1.0, 2.0, 4.0, 8.0]
+CLIP_QUANTILE = 1e-6
 FILE_FRAME_STATISTICS = "frame_statistics.pkl"
 FILE_QUANTIZATION_CONFIG = "quantization_config.pkl"
 
@@ -91,6 +94,7 @@ def _create_quantization_config(columns: Iterable[str], quant_columns: Iterable[
                                 frame: Frame,
                                 frame_statistics: FrameStatistics,
                                 uncertainty_dict: Dict[str, float],
+                                max_n_final: int,
                                 clip: bool = False) -> QuantizationConfig:
     unfinalized_quant_column_configs = [
         UncertaintyQuantColumnConfig(
@@ -104,9 +108,11 @@ def _create_quantization_config(columns: Iterable[str], quant_columns: Iterable[
     quant_column_configs = finalize_quant_column_configs(
         frame=frame,
         configs=unfinalized_quant_column_configs,
-        max_n_final=MAX_N_FINAL,
+        max_n_final=max_n_final,
         frame_stats=frame_statistics,
     )
+    for col_config in quant_column_configs:
+        logging.info("Column %s: step=%s, clip=%s", col_config.name, col_config.step, col_config.clip)
 
     return QuantizationConfig(
         quant_column_configs=quant_column_configs,
@@ -164,7 +170,7 @@ def _get_columns_for_l2_l3(
 
 
 def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, clip: bool,
-             l2_l3_columns: ArgQuantizationL2L3Columns):
+             l2_l3_columns: ArgQuantizationL2L3Columns, extent: list[float], max_n_final: int):
     """
     Quantize bucket data in one streaming pass.
     """
@@ -190,7 +196,7 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, cli
     frame: Frame = gpm.bucket.read(
         bucket_dir=DIR_BUCKET,
         columns=columns,
-        extent=FULL_EXTENT,
+        extent=extent,
         backend="polars_lazy",
     )
 
@@ -205,6 +211,7 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, cli
         frame=frame_prepared,
         frame_statistics=frame_statistics,
         uncertainty_dict=unc_dict,
+        max_n_final=max_n_final,
         clip=clip,
     )
     _save_quantization_config(path, config)
@@ -216,7 +223,8 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, cli
     )
 
 
-def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Callable):
+def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Callable, extent: list[float],
+                       factors: list[float]):
     path_frame_statistics = path / FILE_FRAME_STATISTICS
     if path_frame_statistics.exists():
         return
@@ -237,7 +245,7 @@ def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Cal
     frame: Frame = gpm.bucket.read(
         bucket_dir=DIR_BUCKET,
         columns=columns,
-        extent=FULL_EXTENT,
+        extent=extent,
         backend="polars_lazy",
     )
 
@@ -249,7 +257,7 @@ def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Cal
         frame=frame_prepared,
         quant_columns=quant_columns,
         uncertainties=uncertainty_dict,
-        factors=[1.0, 2.0, 4.0, 8.0],
+        factors=factors,
         available_memory_gb=None,
         chunk_size=CHUNK_SIZE_QUANTIZE,
     )
@@ -303,15 +311,11 @@ def _filter_rows(frame: Frame, filter_by_quality: bool, arg_surface_type: ArgSur
     return frame
 
 
-def _get_clip_range_from_frame_statistics(frame_statistics: FrameStatistics, column: str) -> tuple[float, float] | None:
-    ecdf = frame_statistics.column2ecdf.get(column)
-
-    if ecdf is not None and isinstance(ecdf, pl.Series):
-        values = ecdf.drop_nulls()
-        if len(values) != 0:
-            return values.min(), values.max()
-
-    return None
+def _get_clip_range_from_frame_statistics(frame_statistics: FrameStatistics, column: str) -> tuple[float, float]:
+    # Count-weighted quantiles of the ECDF bins; nulls excluded (its `quantile` column counts them, sorted first)
+    ecdf = frame_statistics.column2ecdf[column].filter(pl.col(column).is_not_null())
+    q_min, q_max = weighted_quantiles(ecdf, [CLIP_QUANTILE, 1 - CLIP_QUANTILE], column, "count")
+    return q_min, q_max
 
 
 def main():
@@ -339,10 +343,19 @@ def main():
                         type=ArgSurfaceType, action=EnumAction,
                         help="Surface type to process during quantization")
     parser.add_argument("--clip", type=parse_bool, default=False,
-                        help="If true, quantized columns are clipped to min/max inferred from frame statistics")
+                        help="If true, quantized columns are clipped to their 1e-6 and 1 - 1e-6 quantiles "
+                             "from frame statistics")
     parser.add_argument("--filter-by-quality", type=parse_bool, default=True,
                         help="If true, data is filtered by sun glint angle and quality flags")
+    parser.add_argument("--lat-limit", type=float,
+                        help="If set, only data with |lat| <= lat-limit is read")
+    parser.add_argument("--max-n-final", type=int, default=MAX_N_FINAL,
+                        help="Maximum estimated number of signatures when choosing the uncertainty factor")
+    parser.add_argument("--factors", type=float, nargs="+", default=FACTORS,
+                        help="Uncertainty factors to estimate signature counts for")
     args = parser.parse_args()
+
+    extent = FULL_EXTENT if args.lat_limit is None else [-180, 180, -args.lat_limit, args.lat_limit]
 
     path = pathlib.Path(args.dir) / "new" / args.transform.value / args.surface_type.value
     path.mkdir(parents=True, exist_ok=True)
@@ -365,9 +378,9 @@ def main():
     with timing(f"Step {args.step}"):
         match args.step:
             case ArgQuantizationStep.STATISTICS:
-                collect_statistics(path, transform, filter_rows)
+                collect_statistics(path, transform, filter_rows, extent, args.factors)
             case ArgQuantizationStep.QUANTIZE:
-                quantize(path, transform, filter_rows, args.clip, args.l2_l3_columns)
+                quantize(path, transform, filter_rows, args.clip, args.l2_l3_columns, extent, args.max_n_final)
             case ArgQuantizationStep.MERGE:
                 merge(path)
             case _:
