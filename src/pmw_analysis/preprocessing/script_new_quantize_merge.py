@@ -178,7 +178,7 @@ def _get_columns_for_l2_l3(
 
 
 def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, clip: bool,
-             l2_l3_columns: ArgQuantizationL2L3Columns, extent: list[float], max_n_final: int):
+             l2_l3_columns: ArgQuantizationL2L3Columns, extent: list[float], max_n_final: int, chunk_size: int):
     """
     Quantize bucket data in one streaming pass.
     """
@@ -227,12 +227,12 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, cli
     quantize_streaming(
         frame=frame_prepared,
         config=config,
-        chunk_size=CHUNK_SIZE_QUANTIZE,
+        chunk_size=chunk_size,
     )
 
 
 def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Callable, extent: list[float],
-                       factors: list[float]):
+                       factors: list[float], chunk_size: int):
     path_frame_statistics = path / FILE_FRAME_STATISTICS
     if path_frame_statistics.exists():
         return
@@ -258,7 +258,8 @@ def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Cal
     )
 
     frame = transform(filter_rows(frame))
-    frame_prepared = _prepare_for_quantization(frame)
+    # Statistics only use the quant columns: other columns would be read and averaged in every trial quantization
+    frame_prepared = _prepare_for_quantization(frame).select(quant_columns)
 
     # 2. Collecting frame statistics
     frame_statistics = collect_frame_statistics(
@@ -267,14 +268,14 @@ def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Cal
         uncertainties=uncertainty_dict,
         factors=factors,
         available_memory_gb=None,
-        chunk_size=CHUNK_SIZE_QUANTIZE,
+        chunk_size=chunk_size,
     )
 
     with open(path_frame_statistics, "wb") as file:
         pickle.dump(frame_statistics, file)
 
 
-def merge(path: pathlib.Path):
+def merge(path: pathlib.Path, chunk_size: int):
     """
     Merge quantized fractions of data from bucket.
     """
@@ -290,7 +291,7 @@ def merge(path: pathlib.Path):
     result = merge_streaming(
         frames_quant=[pl.scan_parquet(p) for p in partial_paths],
         config=config,
-        chunk_size=CHUNK_SIZE_MERGE,
+        chunk_size=chunk_size,
     )
     result.write_parquet(path / "final.parquet")
 
@@ -361,6 +362,10 @@ def main():
                         help="Maximum estimated number of signatures when choosing the uncertainty factor")
     parser.add_argument("--factors", type=float, nargs="+", default=FACTORS,
                         help="Uncertainty factors to estimate signature counts for")
+    parser.add_argument("--chunk-size", type=int, default=CHUNK_SIZE_QUANTIZE,
+                        help="Rows per chunk in the statistics and quantize steps")
+    parser.add_argument("--chunk-size-merge", type=int, default=CHUNK_SIZE_MERGE,
+                        help="Maximum rows merged at once in the merge step")
     args = parser.parse_args()
 
     extent = FULL_EXTENT if args.lat_limit is None else [-180, 180, -args.lat_limit, args.lat_limit]
@@ -386,11 +391,12 @@ def main():
     with timing(f"Step {args.step}"):
         match args.step:
             case ArgQuantizationStep.STATISTICS:
-                collect_statistics(path, transform, filter_rows, extent, args.factors)
+                collect_statistics(path, transform, filter_rows, extent, args.factors, args.chunk_size)
             case ArgQuantizationStep.QUANTIZE:
-                quantize(path, transform, filter_rows, args.clip, args.l2_l3_columns, extent, args.max_n_final)
+                quantize(path, transform, filter_rows, args.clip, args.l2_l3_columns, extent, args.max_n_final,
+                         args.chunk_size)
             case ArgQuantizationStep.MERGE:
-                merge(path)
+                merge(path, args.chunk_size_merge)
             case _:
                 raise ValueError(f"{args.step.value} is not supported.")
 
