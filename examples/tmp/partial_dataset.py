@@ -8,22 +8,15 @@ import polars as pl
 import numpy as np
 
 from pmw_analysis.constants import DIR_BUCKET, TC_COLUMNS, COLUMN_LON, COLUMN_LAT, DIR_PMW_ANALYSIS, COLUMN_COUNT, \
-    COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, ArgTransform, DIR_IMAGES
+    COLUMN_TIME, VARIABLE_SURFACE_TYPE_INDEX, ArgTransform, DIR_IMAGES, EXTENTS_SUBSET
 from pmw_analysis.preprocessing.dataframe_polars import quantize_pmw_features, get_uncertainties_dict
 from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.utils.polars import weighted_quantiles
 
 
 def main():
-    # BUG: boxes are [lat_min, lat_max, lon_min, lon_max], but gpm.bucket.read expects [lon_min, lon_max, lat_min, lat_max].
-    extents = [
-        [42, 44, 39, 41], # Sochi, Russia
-        [59, 61, 4, 6], # Bergen, Norway
-        [17, 19, -17, -15], # Nouakchott, Mauritania
-        [59, 61, -46, -44], # Nanortalik, Greenland
-    ]
     dfs_partial = []
-    for extent in extents:
+    for extent in EXTENTS_SUBSET.values():
         df_partial: pl.DataFrame = gpm.bucket.read(bucket_dir=DIR_BUCKET,
                                                    columns=[COLUMN_TIME, COLUMN_LON, COLUMN_LAT, VARIABLE_SURFACE_TYPE_INDEX] + TC_COLUMNS,
                                                    extent=extent)

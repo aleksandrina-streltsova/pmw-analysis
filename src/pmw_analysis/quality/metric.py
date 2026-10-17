@@ -12,7 +12,7 @@ import polars as pl
 import seaborn as sns
 
 from pmw_analysis.constants import DIR_BUCKET, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, TC_COLUMNS, \
-    DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES
+    DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES, EXTENTS_SUBSET
 from pmw_analysis.analysis.clustering import ClusterModel
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.preprocessing.dataframe_polars import _replace_special_missing_values_with_null
@@ -137,16 +137,9 @@ def main(model_path, transform):
     # model_path = pathlib.Path(PMW_ANALYSIS_DIR) / "v2" / f"{reduction}_{clustering}.pkl"
     # transform = get_transformation_function("v2")
 
-    # BUG: boxes are [lat_min, lat_max, lon_min, lon_max], but gpm.bucket.read expects [lon_min, lon_max, lat_min, lat_max].
-    extents = [
-        [42, 44, 39, 41],  # Sochi, Russia
-        [59, 61, 4, 6],  # Bergen, Norway
-        [17, 19, -17, -15],  # Nouakchott, Mauritania
-        [59, 61, -46, -44],  # Nanortalik, Greenland
-    ]
     dfs_partial = []
 
-    for extent in extents:
+    for extent in EXTENTS_SUBSET.values():
         df_partial: pl.DataFrame = gpm.bucket.read(bucket_dir=DIR_BUCKET,
                                                    columns=None,
                                                    extent=extent)

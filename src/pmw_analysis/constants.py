@@ -60,6 +60,19 @@ VERSION = 7
 
 STORAGE_GES_DISC = "GES_DISC"
 
+# Boxes [lon_min, lon_max, lat_min, lat_max] for feature selection and evaluation.
+# The first four are the spring 2025 boxes; the others add surface types missing from them.
+EXTENTS_SUBSET = {
+    "Sochi": [39, 41, 42, 44],
+    "Bergen": [4, 6, 59, 61],
+    "Nouakchott": [-17, -15, 17, 19],
+    "Nanortalik": [-46, -44, 59, 61],
+    "Saskatchewan": [-106, -104, 52, 54],
+    "Yakutia": [128, 130, 62, 64],
+    "Central Australia": [132, 134, -24, -22],
+    "Sahel": [2, 4, 14, 16],
+}
+
 TC_COLUMNS = ["Tc_10H", "Tc_10V",
               "Tc_19H", "Tc_19V",
               "Tc_23V",
