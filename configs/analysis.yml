@@ -1,0 +1,17 @@
+transform: v4
+#path: /ltenas8/data/PMW_Analysis/v4/land/final_newest.parquet
+path: /ltenas8/data/PMW_Analysis/v4_old/land/final.parquet
+#path: /ltenas8/data/PMW_Analysis/v4/land/final_without_k.parquet
+
+ref-params-path: hists/v4_old/land/final_newest
+
+#var: temp2mIndex
+#var: Tc_37V
+#var: pd_19
+#var: pd_37
+#var: diff_37V_19V
+#var-stat: median
+#var: diff_89V_37V
+#var: L1CqualityFlag_SunGlint
+
+#k: 100000
