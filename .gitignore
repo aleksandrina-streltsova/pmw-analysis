@@ -173,3 +173,6 @@ cython_debug/
 /images*
 /model
 /model
+
+# Quantization logs
+logs/
