@@ -38,27 +38,38 @@ CHUNK_SIZE_MERGE = 10_000_000
 MAX_N_FINAL = 10_000_000
 FACTORS = [1.0, 2.0, 4.0, 8.0]
 CLIP_QUANTILE = 1e-6
+SUN_GLINT_ANGLE_BELOW_HORIZON = -88
 FILE_FRAME_STATISTICS = "frame_statistics.pkl"
 FILE_QUANTIZATION_CONFIG = "quantization_config.pkl"
 
 
 def _prepare_for_quantization(frame: Frame) -> Frame:
     frame = frame.fill_nan(None)
+    frame = _add_below_horizon_columns(frame)
     frame = _replace_special_missing_values_with_null(frame)
     frame = frame.with_columns(pl.col(COLUMN_TIME).dt.ordinal_day().alias("day"))
     frame = frame.drop(COLUMNS_TO_DROP, strict=False)
 
     return frame
 
+def _add_below_horizon_columns(frame: Frame) -> Frame:
+    # Sun below horizon (-88) becomes null in the angle; this flag keeps it, its mean is the fraction below horizon
+    schema = frame.collect_schema()
+    return frame.with_columns([
+        pl.col(col).eq(SUN_GLINT_ANGLE_BELOW_HORIZON).alias(f"{col}_below_horizon")
+        for col in [COLUMN_SUN_GLINT_ANGLE_LF, COLUMN_SUN_GLINT_ANGLE_HF]
+        if col in schema
+    ])
+
+
 def _replace_special_missing_values_with_null(frame: Frame) -> Frame:
     schema = frame.collect_schema()  # {col: dtype}
 
     special_values = {
-        COLUMN_SUN_GLINT_ANGLE_LF: [-99, -9999, -88],
-        COLUMN_SUN_GLINT_ANGLE_HF: [-99, -9999, -88],
+        COLUMN_SUN_GLINT_ANGLE_LF: [-99, -9999, SUN_GLINT_ANGLE_BELOW_HORIZON],
+        COLUMN_SUN_GLINT_ANGLE_HF: [-99, -9999, SUN_GLINT_ANGLE_BELOW_HORIZON],
+        COLUMN_LON: [-9999],  # lon ranges from -180 to 180 and can be equal to -99
     }
-
-    int_types = {pl.Int8, pl.Int16, pl.Int32, pl.Int64}
 
     exprs = [
         pl.when(pl.col(col).is_in(special_values.get(col, [-99, -9999])))
@@ -66,11 +77,8 @@ def _replace_special_missing_values_with_null(frame: Frame) -> Frame:
           .otherwise(pl.col(col))
           .alias(col)
         for col, dtype in schema.items()
-        if col != COLUMN_LON and dtype in int_types
+        if dtype.is_numeric()
     ]
-
-    if schema.get(COLUMN_LON) in int_types:
-        exprs.append(pl.col(COLUMN_LON).replace(-9999, None))
 
     return frame.with_columns(exprs)
 
