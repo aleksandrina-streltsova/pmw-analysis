@@ -9,3 +9,6 @@ lat-limit: 70
 # At least 20 000x compression: 21 900 988 866 observations (2018-2023, |lat| <= 70) / 20 000
 max-n-final: 1095049
 factors: [1, 1.5, 2, 3, 4, 6, 8]
+# Peak memory on this server (~120 GB): quantize 76 GB at 100M-row chunks; merging value counts is memory-heavy
+chunk-size: 50000000
+chunk-size-merge: 1000000
