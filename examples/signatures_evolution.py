@@ -19,7 +19,7 @@ from pmw_analysis.constants import COLUMN_LON, COLUMN_LAT, FILE_DF_FINAL_NEWEST,
     DIR_IMAGES, ArgSurfaceType, FILE_DF_FINAL_OLDEST, COLUMN_TIME, COLUMN_COUNT
 from pmw_analysis.constants import DIR_PMW_ANALYSIS, TC_COLUMNS, ArgTransform
 from pmw_analysis.processing.filter import filter_by_signature_occurrences_count, get_filter_expr_from_value_range
-from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.utils.io import combine_paths, file_to_dir
 from pmw_analysis.utils.logging import timing
 from pmw_analysis.utils.pyplot import plot_histogram, plot_histogram2d

@@ -2,7 +2,7 @@ import polars as pl
 import gpm.bucket
 
 from pmw_analysis.constants import DIR_BUCKET, TC_COLUMNS, COLUMN_LON, COLUMN_LAT, COLUMN_TIME
-from pmw_analysis.quantization.dataframe_polars import get_uncertainties_dict, _round
+from pmw_analysis.preprocessing.dataframe_polars import get_uncertainties_dict, _round
 
 
 def main():

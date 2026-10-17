@@ -11,8 +11,8 @@ from tqdm import tqdm
 from pmw_analysis.constants import COLUMN_SUFFIX_QUANT, COLUMN_COUNT, ArgTransform, ArgSurfaceType, DIR_PMW_ANALYSIS, \
     TC_COLUMNS, FILE_DF_FINAL, FILE_DF_FINAL_NEWEST, Stats, COLUMN_OCCURRENCE, COLUMN_TIME, FILE_DF_FINAL_RAREST, \
     FILE_DF_FINAL_WITHOUT_RAREST
-from pmw_analysis.quantization.dataframe_polars import expand_occurrence_column, get_agg_column
-from pmw_analysis.quantization.script import get_transformation_function
+from pmw_analysis.preprocessing.dataframe_polars import expand_occurrence_column, get_agg_column
+from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.utils.logging import timing
 
 
