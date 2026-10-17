@@ -213,7 +213,7 @@ def clusterize(df_path: pathlib.Path,
 
     df = df_merged
     # df = merge_quantized_pmw_features([df], quant_columns=feature_columns)
-    df = df.drop_nans(feature_columns)
+    df = df.drop_nulls(feature_columns)
     df = df.with_columns(pl.col("peaks").dt.timestamp("ms").alias("peaks_timestamp"))
 
     column_cum_prob = "cum_prob"

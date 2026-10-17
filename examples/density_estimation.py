@@ -71,10 +71,10 @@ def count_neighbors(df: pl.DataFrame, df_query: pl.DataFrame,
 
 def _preprocess(df: pl.DataFrame, df_query: pl.DataFrame,
                 quant_columns: list[str], quant_columns_suffixed: list[str]) -> tuple[pl.DataFrame, pl.DataFrame]:
-    logging.info(f"Number of rows before removing NaNs: {len(df)}, {len(df_query)}")
-    df = df.drop_nans(subset=quant_columns)
-    df_query = df_query.drop_nans(subset=quant_columns_suffixed)
-    logging.info(f"Number of rows after removing NaNs: {len(df)}, {len(df_query)}")
+    logging.info(f"Number of rows before removing nulls: {len(df)}, {len(df_query)}")
+    df = df.drop_nulls(subset=quant_columns)
+    df_query = df_query.drop_nulls(subset=quant_columns_suffixed)
+    logging.info(f"Number of rows after removing nulls: {len(df)}, {len(df_query)}")
 
     return df, df_query
 

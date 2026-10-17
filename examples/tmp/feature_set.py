@@ -30,7 +30,7 @@ def main():
 
     fig, ax = plt.subplots(figsize=(12, 10))
     df = df_merged[feature_columns + [COLUMN_COUNT, VARIABLE_SURFACE_TYPE_INDEX]]
-    df = df.drop_nans()
+    df = df.drop_nulls(feature_columns)
 
     corr_mtx = df[feature_columns].corr()
     corr_mtx = corr_mtx.select([pl.col(col).abs() for col in corr_mtx.columns])

@@ -28,7 +28,7 @@ def _xr_to_pl(da: xr.DataArray) -> pl.DataFrame:
 
     df = da_flat.to_dataframe(name='Tc').reset_index(level="pmw_frequency")
     df = df.pivot(index=["cross_track", "along_track"], columns="pmw_frequency", values="Tc")
-    df = pl.from_pandas(df, include_index=True)
+    df = pl.from_pandas(df, include_index=True, nan_to_null=True)
     df = df.rename({col: f"Tc_{col}" for col in df.columns if f"Tc_{col}" in TC_COLUMNS})
 
     return df
@@ -75,12 +75,11 @@ def plot_map(model_path: pathlib.Path, transform: Callable):
 
     feature_columns = transform(TC_COLUMNS)
     df = transform(df)
-    mask_nan = df.select(pl.any_horizontal(pl.col(feature_columns).is_nan().alias("has_nan")))
+    has_null = df.select(pl.any_horizontal(pl.col(feature_columns).is_null())).to_series()
     model = ClusterModel.load(model_path)
 
     labels = -1 * np.ones(len(df), dtype=int)
-    labels[(~mask_nan["has_nan"]).to_numpy().astype(bool)] = model.predict(
-        df[feature_columns].filter(~mask_nan["has_nan"]))
+    labels[(~has_null).to_numpy()] = model.predict(df[feature_columns].filter(~has_null))
 
     labels = pl.Series(COLUMN_CLUSTER, labels)
     df = df.insert_column(-1, labels.alias(COLUMN_CLUSTER))

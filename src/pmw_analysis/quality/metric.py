@@ -145,14 +145,16 @@ def main(model_path, transform):
                                                    extent=extent)
         dfs_partial.append(df_partial)
     df = pl.concat(dfs_partial)
+    # Missing values as nulls, as in preprocessing
+    df = _replace_special_missing_values_with_null(df.fill_nan(None))
 
     feature_columns = transform(TC_COLUMNS)
     df = transform(df)
-    has_nan = df.select(pl.any_horizontal(pl.col(feature_columns).is_nan())).to_series()
+    has_null = df.select(pl.any_horizontal(pl.col(feature_columns).is_null())).to_series()
     model = ClusterModel.load(model_path)
 
     labels = -1 * np.ones(len(df), dtype=int)
-    labels[(~has_nan).to_numpy().astype(bool)] = model.predict(df[feature_columns].filter(~has_nan))
+    labels[(~has_null).to_numpy()] = model.predict(df[feature_columns].filter(~has_null))
 
     labels = pl.Series(COLUMN_CLUSTER, labels)
     df = df.insert_column(-1, labels.alias(COLUMN_CLUSTER))

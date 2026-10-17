@@ -205,7 +205,7 @@ def _cum_sum_over_time(df: pl.DataFrame, column_time: str, var: str | None = Non
 def _calculate_reverse_cumsum_for_variable(df, column_time, var):
     var_count = f"{var}_{COLUMN_COUNT}"
 
-    df_var_not_null = df.filter(pl.col(var_count).ne(0).and_(pl.col(var).is_not_nan()))  # TODO: fix
+    df_var_not_null = df.filter(pl.col(var_count).ne(0).and_(pl.col(var).is_not_null()))  # TODO: fix
     df_var_not_null = df_var_not_null.drop(COLUMN_COUNT).rename({var_count: COLUMN_COUNT})
     df_var_not_null = df_var_not_null.with_columns(pl.col(COLUMN_COUNT).cast(pl.UInt64))
 
