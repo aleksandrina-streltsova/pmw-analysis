@@ -170,9 +170,15 @@ if __name__ == '__main__':
                         help="Type of transformation performed on data")
     parser.add_argument("--reduction", type=ArgDimensionalityReduction, action=EnumAction)
     parser.add_argument("--clustering", type=ArgClustering, action=EnumAction)
+    parser.add_argument("--model-path", type=pathlib.Path,
+                        help="Path to the model; by default <DIR_PMW_ANALYSIS>/<transform>/<reduction>_<clustering>.pkl")
 
     args = parser.parse_args()
+    model_path = args.model_path
+    if model_path is None:
+        model_path = (pathlib.Path(DIR_PMW_ANALYSIS) / args.transform.value /
+                      f"{args.reduction.value}_{args.clustering.value}.pkl")
     main(
-        model_path=pathlib.Path(DIR_PMW_ANALYSIS) / args.transform.value / f"{args.reduction}_{args.clustering}.pkl",
+        model_path=model_path,
         transform=get_transformation_function(args.transform)
     )
