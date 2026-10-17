@@ -1,3 +1,7 @@
 transform: v4
-agg-off-cols: ["lon", "lat", "gpm_id", "gpm_cross_track_id"]
-l1-only: true
+#agg-off-cols: ["lon", "lat", "gpm_id", "gpm_cross_track_id"]
+#l2-l3-columns: analysis_minimum
+surface-type: land
+#filter-by-quality: True
+#transients-timedelta-days: 730
+rarest-max-count: 10
