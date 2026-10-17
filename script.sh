@@ -1,4 +1,7 @@
 #!/usr/bin/bash
-/home/streltso/miniconda/envs/pmw-analysis-env/bin/python3.12 /home/streltso/git/pmw-analysis/src/pmw_analysis/quantization/script.py --step factor --config configs/quantization.yml
-/home/streltso/miniconda/envs/pmw-analysis-env/bin/python3.12 /home/streltso/git/pmw-analysis/src/pmw_analysis/quantization/script.py --step quantize --config configs/quantization.yml
-/home/streltso/miniconda/envs/pmw-analysis-env/bin/python3.12 /home/streltso/git/pmw-analysis/src/pmw_analysis/quantization/script.py --step merge --config configs/quantization.yml
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${ROOT_DIR}/src"
+
+/home/streltso/miniconda/envs/pmw-analysis-env/bin/python3.12 -m pmw_analysis.preprocessing.script --step factor --config "${ROOT_DIR}/configs/quantization.yml"
+/home/streltso/miniconda/envs/pmw-analysis-env/bin/python3.12 -m pmw_analysis.preprocessing.script --step quantize --config "${ROOT_DIR}/configs/quantization.yml"
+/home/streltso/miniconda/envs/pmw-analysis-env/bin/python3.12 -m pmw_analysis.preprocessing.script --step merge --config "${ROOT_DIR}/configs/quantization.yml"
