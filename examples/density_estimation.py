@@ -129,7 +129,7 @@ def _count_neighbors_radius_batched(indices: Iterable[np.ndarray], weight: np.nd
 
         # --- flatten this batch ---
         batch_indices = indices[start:end]
-        flat_idx = np.concatenate(batch_indices)
+        flat_idx = np.concatenate(batch_indices).astype(np.int64)
 
         # --- build offsets for this batch ---
         sizes = np.array([len(i) for i in batch_indices])
