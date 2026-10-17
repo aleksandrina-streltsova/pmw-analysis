@@ -3,7 +3,7 @@ channels:
   - pytorch
   - conda-forge
 dependencies:
-  - python>=3.10,<3.13  # 3.13 is only supported starting numpy 2.1 which is incompatible with umap<=0.5.7
+  - python>=3.12,<3.13  # 3.12: quantization_lib uses `type` aliases; 3.13 is only supported starting numpy 2.1 which is incompatible with umap<=0.5.7
   - xarray>=2025.01.0
   - numpy<2.0           # numpy>=2.0 is incompatible with umap<=0.5.7
   - umap-learn
