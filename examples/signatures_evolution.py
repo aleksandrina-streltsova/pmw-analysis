@@ -115,7 +115,8 @@ def main():
 
 def _detect_peaks(df: pl.DataFrame,
                   bin_sizes: dict[str, Any], bin_ranges: dict[str, Any],
-                  images_dir: pathlib.Path) -> pl.Series:
+                  images_dir: pathlib.Path,
+                  verbose: bool = True) -> pl.Series:
     assert df.shape[1] <= 2, "Peak detection using more than two variables is not supported"
 
     if any(dtype == pl.Datetime for dtype in df.dtypes):
@@ -133,7 +134,7 @@ def _detect_peaks(df: pl.DataFrame,
 
     hist, bin_edges_list = _build_hist(df, bin_sizes, bin_ranges)
 
-    peak_indices = _get_peak_indices_from_hist(df, hist, bin_edges_list, images_dir)
+    peak_indices = _get_peak_indices_from_hist(df, hist, bin_edges_list, images_dir, verbose)
 
     peaks = _build_peaks_series(df, peak_indices, bin_edges_list)
 
@@ -172,21 +173,23 @@ def _build_hist(df: pl.DataFrame,
 
 
 def _get_peak_indices_from_hist(df: pl.DataFrame, hist: np.ndarray, bin_edges_list: list[np.ndarray],
-                                images_dir: pathlib.Path) -> np.ndarray:
+                                images_dir: pathlib.Path, verbose: bool) -> np.ndarray:
     if len(hist.shape) == 1:
         bin_edges = bin_edges_list[0]
 
         peak_indices, _ = find_peaks(hist)
-        # Plot histogram and threshold
-        plt.figure(figsize=(20, 5))
-        # TODO: title, xlabel, ylabel, hlines label should be passed
-        plot_histogram(hist, bin_edges, title="Transient signatures count", x_label="Datetime", y_label="Count")
-        plt.scatter((bin_edges[peak_indices] + bin_edges[peak_indices + 1]) / 2, hist[peak_indices],
-                    marker="x", color="red", label="Detected peaks")
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(images_dir / f"hist_peaks_{'_'.join(df.columns)}.png")
-        plt.show()
+
+        if verbose:
+            # Plot histogram and threshold
+            plt.figure(figsize=(20, 5))
+            # TODO: title, xlabel, ylabel, hlines label should be passed
+            plot_histogram(hist, bin_edges, title="Transient signatures count", x_label="Datetime", y_label="Count")
+            plt.scatter((bin_edges[peak_indices] + bin_edges[peak_indices + 1]) / 2, hist[peak_indices],
+                        marker="x", color="red", label="Detected peaks")
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(images_dir / f"hist_peaks_{'_'.join(df.columns)}.png")
+            plt.show()
 
         return peak_indices
 
@@ -195,22 +198,24 @@ def _get_peak_indices_from_hist(df: pl.DataFrame, hist: np.ndarray, bin_edges_li
         bin_edges_y = bin_edges_list[1]
 
         peak_indices = peak_local_max(hist, min_distance=1)
-        # Plot 2D-histogram and detected local maxima
-        _, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 10))
-        # TODO: title, xlabel, ylabel, hlines label should be passed
-        use_log_norm = True
-        x_ticks = np.arange(len(bin_edges_x))[::len(bin_edges_x) // 40]
-        y_ticks = np.arange(len(bin_edges_y))[::len(bin_edges_y) // 20]
-        plot_histogram2d(ax, hist.T[::-1], use_log_norm,
-                         x_ticks, bin_edges_x[x_ticks],
-                         y_ticks, bin_edges_y[::-1][y_ticks],
-                         title="Transient signatures count", x_label="Longitude", y_label="Latitude", cmap="viridis")
-        plt.scatter(peak_indices[:, 0] + 1 / 2, len(bin_edges_y) - 1 - (peak_indices[:, 1] + 1 / 2),
-                    marker=".", color="red", label="Detected peaks")
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(images_dir / f"hist_peaks_{'_'.join(df.columns)}.png")
-        plt.show()
+
+        if verbose:
+            # Plot 2D-histogram and detected local maxima
+            _, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 10))
+            # TODO: title, xlabel, ylabel, hlines label should be passed
+            use_log_norm = True
+            x_ticks = np.arange(len(bin_edges_x))[::len(bin_edges_x) // 40]
+            y_ticks = np.arange(len(bin_edges_y))[::len(bin_edges_y) // 20]
+            plot_histogram2d(ax, hist.T[::-1], use_log_norm,
+                             x_ticks, bin_edges_x[x_ticks],
+                             y_ticks, bin_edges_y[::-1][y_ticks],
+                             title="Transient signatures count", x_label="Longitude", y_label="Latitude", cmap="viridis")
+            plt.scatter(peak_indices[:, 0] + 1 / 2, len(bin_edges_y) - 1 - (peak_indices[:, 1] + 1 / 2),
+                        marker=".", color="red", label="Detected peaks")
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(images_dir / f"hist_peaks_{'_'.join(df.columns)}.png")
+            plt.show()
 
         return peak_indices
 
@@ -266,11 +271,15 @@ def _take_k_peaks(peaks: pl.DataFrame, k: int) -> pl.DataFrame:
     return peaks_k
 
 
-def take_k_peaks_by_zones(peaks: pl.DataFrame, k: int, zones: pl.Series):
+def take_k_peaks_by_zones(peaks: pl.DataFrame, k: int | dict, zones: pl.Series):
     peaks_k = peaks.clone()
     for zone, _ in zones.value_counts().iter_rows():
+        if isinstance(k, dict):
+            k_to_use = k[zone]
+        else:
+            k_to_use = k
         peaks_zone = peaks.with_columns(pl.when(zones == zone).then(pl.col("peaks")).otherwise(None).alias("peaks"))
-        peaks_zone_k = _take_k_peaks(peaks_zone, k)
+        peaks_zone_k = _take_k_peaks(peaks_zone, k_to_use)
         peaks_k = peaks_k.with_columns(pl.when(zones == zone)
                                        .then(peaks_zone_k["peaks"])
                                        .otherwise(peaks_k["peaks"])
