@@ -32,6 +32,7 @@ from pmw_analysis.preprocessing.dataframe_polars import get_uncertainties_dict, 
 from pmw_analysis.preprocessing.transforms import get_pd_col, get_ratio_col, get_diff_col, _get_pd_expr, \
     _get_ratio_expr, _get_diff_expr, _add_pd_unc, _add_ratio_unc, _add_diff_unc, get_transformation_function
 from pmw_analysis.retrievals.retrieval_1b_c_pmw import retrieve_possible_sun_glint
+from pmw_analysis.utils.cli import parse_bool
 from pmw_analysis.utils.io import rmtree
 from pmw_analysis.utils.logging import disable_logging, timing, get_memory_usage
 from pmw_analysis.utils.polars import take_k_sorted, weighted_quantiles
@@ -590,13 +591,13 @@ def main():
     parser.add_argument("--surface-type", default=ArgSurfaceType.ALL,
                         type=ArgSurfaceType, action=EnumAction,
                         help="Surface type to process during quantization")
-    parser.add_argument("--clip", type=bool, default=False,
+    parser.add_argument("--clip", type=parse_bool, default=False,
                         help="If true, data is clipped to the range from range dictionary")
     parser.add_argument("--transients-k", type=int,
                         help="The number of transient signatures to use when acquiring observations")
     parser.add_argument("--transients-timedelta-days", type=int,
                         help="The time period as a timedelta for acquiring observations based on transient signatures")
-    parser.add_argument("--filter-by-quality", type=bool, default=True,
+    parser.add_argument("--filter-by-quality", type=parse_bool, default=True,
                         help="If true, data is filtered by sun glint angle and quality flags")
     parser.add_argument("--rarest-max-count", type=int,
                         help="The maximum allowed count for signature to be considered one of the rarest")

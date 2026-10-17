@@ -21,6 +21,7 @@ from pmw_analysis.preprocessing.aggregation_defaults import build_default_per_co
 from pmw_analysis.preprocessing.dataframe_polars import get_uncertainties_dict
 from pmw_analysis.preprocessing.transforms import get_transformation_function
 from pmw_analysis.processing.filter import filter_by_value_range
+from pmw_analysis.utils.cli import parse_bool
 from pmw_analysis.utils.logging import timing
 from quantization.aggregation import AggregationPlan, AggMax, AggMean, AggMin
 from quantization.api import collect_frame_statistics, quantize_streaming, merge_streaming, \
@@ -337,9 +338,9 @@ def main():
     parser.add_argument("--surface-type", default=ArgSurfaceType.ALL,
                         type=ArgSurfaceType, action=EnumAction,
                         help="Surface type to process during quantization")
-    parser.add_argument("--clip", type=bool, default=False,
+    parser.add_argument("--clip", type=parse_bool, default=False,
                         help="If true, quantized columns are clipped to min/max inferred from frame statistics")
-    parser.add_argument("--filter-by-quality", type=bool, default=True,
+    parser.add_argument("--filter-by-quality", type=parse_bool, default=True,
                         help="If true, data is filtered by sun glint angle and quality flags")
     args = parser.parse_args()
 
