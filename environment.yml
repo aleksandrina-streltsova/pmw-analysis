@@ -39,3 +39,4 @@ dependencies:
   - pip
   - pip:
       - quantization_lib
+      - feature_engine==1.9.4  # via pip: the conda-forge package pulls in scikit-learn 1.8
