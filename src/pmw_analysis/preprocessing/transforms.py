@@ -191,6 +191,28 @@ def v4_transform(obj, drop: bool = True):
     raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
 
 
+def v5_transform(obj, drop: bool = True):
+    """v2 plus pd_19: the |r| > 0.95 selection on the eight-box subset (EXTENTS_SUBSET)."""
+    if isinstance(obj, (pl.DataFrame, pl.LazyFrame)):
+        lf = obj
+        lf = lf.with_columns([_get_ratio_expr("Tc_37H", "Tc_19H"), _get_pd_expr(19), _get_pd_expr(89)])
+        if drop:
+            lf = lf.drop([col for col in TC_COLUMNS if col not in ["Tc_19V", "Tc_89V"]])
+        return lf
+
+    if isinstance(obj, dict):
+        unc_dict = obj
+        _add_ratio_unc("Tc_37H", "Tc_19H", unc_dict)
+        _add_pd_unc(19, unc_dict)
+        _add_pd_unc(89, unc_dict)
+        return unc_dict
+
+    if isinstance(obj, list):
+        return [get_ratio_col("Tc_37H", "Tc_19H"), get_pd_col(19), get_pd_col(89), "Tc_19V", "Tc_89V"]
+
+    raise TypeError("Unsupported object type: " + str(type(obj)) + ". Supported types: pl.DataFrame, Dict.")
+
+
 def get_transformation_function(arg_transform: ArgTransform) -> Callable:
     """Return a transformation function based on the specified argument."""
     match arg_transform:
@@ -208,6 +230,8 @@ def get_transformation_function(arg_transform: ArgTransform) -> Callable:
             transform = v3_transform
         case ArgTransform.V4:
             transform = v4_transform
+        case ArgTransform.V5:
+            transform = v5_transform
         case _:
             raise ValueError(f"{arg_transform.value} is not supported.")
     return transform

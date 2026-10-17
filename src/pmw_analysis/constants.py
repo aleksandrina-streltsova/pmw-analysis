@@ -159,6 +159,7 @@ class ArgTransform(enum.Enum):
     V2 = "v2"
     V3 = "v3"
     V4 = "v4"
+    V5 = "v5"
 
 
 class ArgQuantizationL2L3Columns(enum.Enum):
