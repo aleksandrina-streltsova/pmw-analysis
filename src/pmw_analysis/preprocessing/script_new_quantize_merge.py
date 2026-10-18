@@ -19,7 +19,7 @@ from gpm.bucket.io import get_bucket_spatial_partitioning
 from gpm.utils.directories import get_filepaths_within_paths
 from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, \
     COLUMN_TIME, COLUMNS_TO_DROP, \
-    ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
+    ArgQuantizationStep, ArgTransform, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
     ArgSurfaceType, COLUMN_SUN_GLINT_ANGLE_HF, COLUMN_SUN_GLINT_ANGLE_LF, SUN_GLINT_PRESENCE_RANGE, \
     QUALITY_FLAG_NON_NORMAL_STATUS_MODE, COLUMN_TEMP_2M_INDEX
 from pmw_analysis.copypaste.utils.cli import EnumAction
@@ -219,27 +219,8 @@ def _calculate_ecdf(hists: list[pl.DataFrame], column: str) -> pl.DataFrame:
     return hist.with_columns((count.cum_sum() / count.sum()).alias("quantile"))
 
 
-def _get_columns_for_l2_l3(
-    l2_l3_columns: ArgQuantizationL2L3Columns,
-    required_columns: set[str],
-) -> set[str] | None:
-    match l2_l3_columns:
-        case ArgQuantizationL2L3Columns.NONE:
-            return required_columns
-        case ArgQuantizationL2L3Columns.ANALYSIS_MINIMUM:
-            return required_columns | {
-                VARIABLE_SURFACE_TYPE_INDEX,
-                COLUMN_L1C_QUALITY_FLAG,
-                COLUMN_TEMP_2M_INDEX,
-                COLUMN_SUN_GLINT_ANGLE_LF,
-                COLUMN_SUN_GLINT_ANGLE_HF,
-            }
-        case ArgQuantizationL2L3Columns.ALL:
-            return None
-
-
 def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, clip: bool,
-             l2_l3_columns: ArgQuantizationL2L3Columns, extent: list[float], max_n_final: int, chunk_size: int):
+             l2_l3_columns: list[str] | None, extent: list[float], max_n_final: int, chunk_size: int):
     """
     Quantize bucket data in one streaming pass.
     """
@@ -258,8 +239,9 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, cli
     with open(path_frame_statistics, "rb") as file:
         frame_statistics: FrameStatistics = pickle.load(file)
 
-    required_columns = set(TC_COLUMNS + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME])
-    columns = _get_columns_for_l2_l3(l2_l3_columns, required_columns)
+    # All columns if no L2/L3 columns are given
+    columns = None if l2_l3_columns is None else \
+        set(TC_COLUMNS + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME] + l2_l3_columns)
     blocks = _get_bucket_blocks(extent, chunk_size)
 
     frame_prepared = _read_block(blocks[0], columns, extent, transform, filter_rows)
@@ -408,9 +390,9 @@ def main():
                         help="Path to the directory to store quantized data in")
     parser.add_argument("--month", type=int, help="Month of the data to quantize")
     parser.add_argument("--year", type=int, help="Year of the data to quantize")
-    parser.add_argument("--l2-l3-columns", default=ArgQuantizationL2L3Columns.ALL,
-                        type=ArgQuantizationL2L3Columns, action=EnumAction,
-                        help="L2 and L3 columns to process during quantization")
+    parser.add_argument("--l2-l3-columns", nargs="+",
+                        help="L2 and L3 columns to read and aggregate besides Tc, lon, lat, and time; "
+                             "all columns if not set")
     parser.add_argument("--surface-type", default=ArgSurfaceType.ALL,
                         type=ArgSurfaceType, action=EnumAction,
                         help="Surface type to process during quantization")

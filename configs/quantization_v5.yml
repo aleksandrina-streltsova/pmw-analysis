@@ -6,6 +6,8 @@ surface-type: all
 filter-by-quality: false
 clip: true
 lat-limit: 70
+# GPROF variables needed by the signature figures; no quality-flag or sun-glint columns, since there's no filtering
+l2-l3-columns: [surfaceTypeIndex, surfacePrecipitation, totalColumnWaterVaporIndex]
 # At least 20 000x compression: 21 900 988 866 observations (2018-2023, |lat| <= 70) / 20 000
 max-n-final: 1095049
 # Factor 1 can't fit: the lat_bin 0 slice alone (1/43 of the data) has 1.87M signatures at factor 1
