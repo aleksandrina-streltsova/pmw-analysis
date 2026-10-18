@@ -1,7 +1,7 @@
 # Full dataset with transform v5, settings as in the spring 2025 quantization (summary 2026, B2).
 # Run with --step statistics, then --step quantize, then --step merge.
 transform: v5
-dir: /ltenas8/data/PMW_Analysis/summary_2026/b2/factor2
+dir: /ltenas8/data/PMW_Analysis/summary_2026/b2/factor2_run2
 surface-type: all
 filter-by-quality: false
 clip: true
