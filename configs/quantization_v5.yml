@@ -12,7 +12,7 @@ l2-l3-columns: [surfaceTypeIndex, surfacePrecipitation, totalColumnWaterVaporInd
 # of the 21 900 988 866 observations (2018-2023, |lat| <= 70)
 max-n-final: 5000000
 factors: [2]
-# Blocks of ~50M rows; peak memory on the slice: statistics 11 GB, quantize 40 GB, merge 28 GB at 1M rows
-# per merge call (37 GB at 1.4M); merging value counts is memory-heavy, hence at most 2M rows at once
+# Chunks of 50M rows; peak memory on the full bucket: statistics 25 GB and quantize 23 GB (first 50 chunks),
+# merge 65 GB at factor 2; merging value counts is memory-heavy, hence at most 2M rows per merge call
 chunk-size: 50000000
 chunk-size-merge: 2000000
