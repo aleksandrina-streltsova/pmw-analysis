@@ -8,7 +8,9 @@ clip: true
 lat-limit: 70
 # At least 20 000x compression: 21 900 988 866 observations (2018-2023, |lat| <= 70) / 20 000
 max-n-final: 1095049
-factors: [1, 1.5, 2, 3, 4, 6, 8]
-# Peak memory on this server (~120 GB): quantize 76 GB at 100M-row chunks; merging value counts is memory-heavy
+# Factor 1 can't fit: the lat_bin 0 slice alone (1/43 of the data) has 1.87M signatures at factor 1
+factors: [1.5, 2, 3, 4, 6, 8]
+# Blocks of ~50M rows; peak memory on the slice: statistics 11 GB, quantize 40 GB, merge 28 GB
+# (merging value counts is memory-heavy, hence at most 1M rows at once)
 chunk-size: 50000000
 chunk-size-merge: 1000000
