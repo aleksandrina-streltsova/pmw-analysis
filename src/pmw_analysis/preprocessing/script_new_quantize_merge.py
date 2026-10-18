@@ -2,15 +2,21 @@
 Script for performing quantization on data from bucket.
 """
 import logging
+import os
 import pathlib
 import pickle
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Dict, Callable, Iterable
+from typing import Dict, Callable, Iterable, Iterator
 
 import configargparse
-import gpm
-import gpm.bucket
+import hll_rust_py
 import polars as pl
+import pyarrow.parquet as pq
+from gpm.bucket.filters import apply_spatial_filters
+from gpm.bucket.io import get_bucket_spatial_partitioning
+from gpm.utils.directories import get_filepaths_within_paths
 from pmw_analysis.constants import DIR_BUCKET, DIR_PMW_ANALYSIS, COLUMN_LON, COLUMN_LAT, TC_COLUMNS, \
     COLUMN_TIME, COLUMNS_TO_DROP, \
     ArgQuantizationStep, ArgTransform, ArgQuantizationL2L3Columns, VARIABLE_SURFACE_TYPE_INDEX, COLUMN_L1C_QUALITY_FLAG, \
@@ -25,8 +31,7 @@ from pmw_analysis.utils.cli import parse_bool
 from pmw_analysis.utils.logging import timing
 from pmw_analysis.utils.polars import weighted_quantiles
 from quantization.aggregation import AggregationPlan, AggMax, AggMean, AggMin
-from quantization.api import collect_frame_statistics, quantize_streaming, merge_streaming, \
-    finalize_quant_column_configs
+from quantization.api import quantize as quantize_frame, merge_streaming, finalize_quant_column_configs
 from quantization.config import QuantizationConfig
 from quantization.constants import COLUMN_SUFFIX_QUANT
 from quantization.quant_columns import FixedStepQuantColumnConfig, UncertaintyQuantColumnConfig
@@ -158,6 +163,62 @@ def _load_quantization_config(path: pathlib.Path) -> QuantizationConfig:
     )
 
 
+def _get_bucket_blocks(extent: list[float], rows_per_block: int) -> list[list[str]]:
+    """
+    Group bucket files within the extent into blocks of whole partitions with about `rows_per_block` rows.
+    Each block is read eagerly: the library's lazy iteration (collect_batches) reads far ahead of the
+    processing once the frame is transformed (about 120 GB on the full bucket).
+    """
+    partitioning = get_bucket_spatial_partitioning(DIR_BUCKET)
+    paths = [os.path.join(DIR_BUCKET, dir_tree) for dir_tree in partitioning.directories_by_extent(extent)]
+    filepaths = get_filepaths_within_paths([path for path in paths if os.path.exists(path)], parallel=True)
+    with ThreadPoolExecutor(32) as executor:
+        file2rows = dict(zip(filepaths, executor.map(lambda f: pq.ParquetFile(f).metadata.num_rows, filepaths)))
+
+    partition2files = defaultdict(list)
+    for filepath in sorted(filepaths):
+        partition2files[os.path.dirname(filepath)].append(filepath)
+
+    blocks, block, block_rows = [], [], 0
+    for files in partition2files.values():
+        block += files
+        block_rows += sum(file2rows[f] for f in files)
+        if block_rows >= rows_per_block:
+            blocks.append(block)
+            block, block_rows = [], 0
+    if block:
+        blocks.append(block)
+    return blocks
+
+
+def _read_block(files: list[str], columns: set[str] | None, extent: list[float], transform: Callable,
+                filter_rows: Callable) -> pl.LazyFrame:
+    frame = pl.scan_parquet(files, hive_partitioning=False)
+    if columns is not None:
+        frame = frame.select(sorted(columns))
+    frame = apply_spatial_filters(frame, filters={"extent": extent})
+    return _prepare_for_quantization(transform(filter_rows(frame)))
+
+
+def _iter_blocks(blocks: list[list[str]], read: Callable[[list[str]], pl.DataFrame]) -> Iterator[pl.DataFrame]:
+    # Read the next block in the background while the current one is processed: at most two blocks in memory
+    with ThreadPoolExecutor(1) as executor:
+        future = executor.submit(read, blocks[0])
+        for i in range(len(blocks)):
+            block = future.result()
+            if i + 1 < len(blocks):
+                future = executor.submit(read, blocks[i + 1])
+            yield block
+
+
+def _calculate_ecdf(hists: list[pl.DataFrame], column: str) -> pl.DataFrame:
+    # As in the library's collect_frame_statistics
+    count = pl.col("count")
+    hist = pl.concat(hists).group_by(pl.col(column)).agg(count.sum())
+    hist = hist.sort(by=column).with_columns(count.cast(pl.UInt64))
+    return hist.with_columns((count.cum_sum() / count.sum()).alias("quantile"))
+
+
 def _get_columns_for_l2_l3(
     l2_l3_columns: ArgQuantizationL2L3Columns,
     required_columns: set[str],
@@ -197,21 +258,11 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, cli
     with open(path_frame_statistics, "rb") as file:
         frame_statistics: FrameStatistics = pickle.load(file)
 
-    # 1. Lazy reading from bucket
     required_columns = set(TC_COLUMNS + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME])
     columns = _get_columns_for_l2_l3(l2_l3_columns, required_columns)
+    blocks = _get_bucket_blocks(extent, chunk_size)
 
-    frame: Frame = gpm.bucket.read(
-        bucket_dir=DIR_BUCKET,
-        columns=columns,
-        extent=extent,
-        backend="polars_lazy",
-    )
-
-    frame = transform(filter_rows(frame))
-
-    # 2. Quantizing
-    frame_prepared = _prepare_for_quantization(frame)
+    frame_prepared = _read_block(blocks[0], columns, extent, transform, filter_rows)
     config = _create_quantization_config(
         columns=frame_prepared.collect_schema().names(),
         quant_columns=quant_columns,
@@ -224,11 +275,11 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, cli
     )
     _save_quantization_config(path, config)
 
-    quantize_streaming(
-        frame=frame_prepared,
-        config=config,
-        chunk_size=chunk_size,
-    )
+    # Same output as quantization.api.quantize_streaming, but read block by block (see _get_bucket_blocks)
+    read = lambda files: _read_block(files, columns, extent, transform, filter_rows).collect()
+    for i, block in enumerate(_iter_blocks(blocks, read)):
+        logging.info("Quantizing block %d/%d: %d rows.", i + 1, len(blocks), block.height)
+        quantize_frame(block, config).write_parquet(path / f"quantized_{i}.parquet")
 
 
 def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Callable, extent: list[float],
@@ -240,7 +291,6 @@ def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Cal
     quant_columns = transform(TC_COLUMNS)
     uncertainty_dict = transform(get_uncertainties_dict(TC_COLUMNS))
 
-    # 1. Reading from bucket
     # Only quantization columns are relevant for frame statistics.
     # Keep filter-related columns for pre-statistics filtering.
     columns = set(TC_COLUMNS + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME]) | {
@@ -250,26 +300,39 @@ def collect_statistics(path: pathlib.Path, transform: Callable, filter_rows: Cal
         COLUMN_SUN_GLINT_ANGLE_LF,
         COLUMN_SUN_GLINT_ANGLE_HF,
     }
-    frame: Frame = gpm.bucket.read(
-        bucket_dir=DIR_BUCKET,
-        columns=columns,
-        extent=extent,
-        backend="polars_lazy",
-    )
 
-    frame = transform(filter_rows(frame))
-    # Statistics only use the quant columns: other columns would be read and averaged in every trial quantization
-    frame_prepared = _prepare_for_quantization(frame).select(quant_columns)
+    # Same statistics as quantization.api.collect_frame_statistics (ECDF histograms at uncertainty / 10,
+    # HyperLogLog signature counts per factor), but read block by block (see _get_bucket_blocks)
+    ecdf_configs = [FixedStepQuantColumnConfig(col, uncertainty_dict[col] / 10) for col in quant_columns]
+    factor2config = {
+        f: QuantizationConfig(
+            quant_column_configs=[FixedStepQuantColumnConfig(col, f * uncertainty_dict[col], use_integer_indices=True)
+                                  for col in quant_columns],
+            agg_plan=AggregationPlan(per_column={}, default_non_quant="mean"),
+            output_dir=".",
+        )
+        for f in factors
+    }
+    quant_columns_quant = [f"{col}{COLUMN_SUFFIX_QUANT}" for col in quant_columns]
+    column2hists = defaultdict(list)
+    factor2hll = {f: hll_rust_py.PyHLL() for f in factors}
 
-    # 2. Collecting frame statistics
-    frame_statistics = collect_frame_statistics(
-        frame=frame_prepared,
-        quant_columns=quant_columns,
-        uncertainties=uncertainty_dict,
-        factors=factors,
-        available_memory_gb=None,
-        chunk_size=chunk_size,
+    blocks = _get_bucket_blocks(extent, chunk_size)
+    read = lambda files: _read_block(files, columns, extent, transform, filter_rows).select(quant_columns).collect()
+    for i, block in enumerate(_iter_blocks(blocks, read)):
+        logging.info("Collecting frame statistics for block %d/%d: %d rows.", i + 1, len(blocks), block.height)
+        for ecdf_config in ecdf_configs:
+            hist = block.select(ecdf_config.expr_round().alias(ecdf_config.name)).to_series().value_counts()
+            column2hists[ecdf_config.name].append(hist)
+        for f, config in factor2config.items():
+            hashes = quantize_frame(block, config).select(pl.struct(quant_columns_quant).hash()).to_series()
+            factor2hll[f].extend(hashes.to_numpy())
+
+    frame_statistics = FrameStatistics(
+        column2ecdf={col: _calculate_ecdf(hists, col) for col, hists in column2hists.items()},
+        factor2size={f: hll.count() for f, hll in factor2hll.items()},
     )
+    logging.info("Estimated number of signatures per factor: %s", frame_statistics.factor2size)
 
     with open(path_frame_statistics, "wb") as file:
         pickle.dump(frame_statistics, file)
