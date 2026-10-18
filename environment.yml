@@ -38,5 +38,5 @@ dependencies:
   - ConfigArgParse
   - pip
   - pip:
-      - quantization_lib
+      - quantization_lib==0.0.3  # installed from ~/git/quantization_lib (6553871) until 0.0.3 is on PyPI
       - feature_engine==1.9.4  # via pip: the conda-forge package pulls in scikit-learn 1.8
