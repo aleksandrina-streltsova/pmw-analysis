@@ -203,7 +203,7 @@ def _read_block(files: list[str], columns: set[str] | None, extent: list[float],
 def _iter_blocks(blocks: list[list[str]], read: Callable[[list[str]], pl.DataFrame]) -> Iterator[pl.DataFrame]:
     # Read the next block in the background while the current one is processed: at most two blocks in memory
     with ThreadPoolExecutor(1) as executor:
-        future = executor.submit(read, blocks[0])
+        future = executor.submit(read, blocks[0]) if blocks else None
         for i in range(len(blocks)):
             block = future.result()
             if i + 1 < len(blocks):
@@ -244,22 +244,30 @@ def quantize(path: pathlib.Path, transform: Callable, filter_rows: Callable, cli
         set(TC_COLUMNS + [COLUMN_LON, COLUMN_LAT, COLUMN_TIME] + l2_l3_columns)
     blocks = _get_bucket_blocks(extent, chunk_size)
 
-    frame_prepared = _read_block(blocks[0], columns, extent, transform, filter_rows)
-    config = _create_quantization_config(
-        columns=frame_prepared.collect_schema().names(),
-        quant_columns=quant_columns,
-        output_dir=path,
-        frame=frame_prepared,
-        frame_statistics=frame_statistics,
-        uncertainty_dict=unc_dict,
-        max_n_final=max_n_final,
-        clip=clip,
-    )
-    _save_quantization_config(path, config)
+    if (path / FILE_QUANTIZATION_CONFIG).exists():
+        # Resuming an interrupted run: quantize the remaining blocks with the config of the existing ones
+        config = _load_quantization_config(path)
+    else:
+        frame_prepared = _read_block(blocks[0], columns, extent, transform, filter_rows)
+        config = _create_quantization_config(
+            columns=frame_prepared.collect_schema().names(),
+            quant_columns=quant_columns,
+            output_dir=path,
+            frame=frame_prepared,
+            frame_statistics=frame_statistics,
+            uncertainty_dict=unc_dict,
+            max_n_final=max_n_final,
+            clip=clip,
+        )
+        _save_quantization_config(path, config)
+
+    # Skip blocks already quantized by an interrupted run
+    todo = [i for i in range(len(blocks)) if not (path / f"quantized_{i}.parquet").exists()]
+    logging.info("Skipping %d already quantized blocks.", len(blocks) - len(todo))
 
     # Same output as quantization.api.quantize_streaming, but read block by block (see _get_bucket_blocks)
     read = lambda files: _read_block(files, columns, extent, transform, filter_rows).collect()
-    for i, block in enumerate(_iter_blocks(blocks, read)):
+    for i, block in zip(todo, _iter_blocks([blocks[i] for i in todo], read)):
         logging.info("Quantizing block %d/%d: %d rows.", i + 1, len(blocks), block.height)
         quantize_frame(block, config).write_parquet(path / f"quantized_{i}.parquet")
 
