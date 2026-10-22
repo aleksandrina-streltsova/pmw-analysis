@@ -12,7 +12,8 @@ import polars as pl
 import seaborn as sns
 
 from pmw_analysis.constants import DIR_BUCKET, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX, ST_COLUMNS, TC_COLUMNS, \
-    DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES, EXTENTS_SUBSET
+    DIR_PMW_ANALYSIS, ArgTransform, ArgDimensionalityReduction, ArgClustering, DIR_IMAGES, EXTENTS_SUBSET, COLUMN_LON, \
+    COLUMN_LAT, COLUMN_TIME
 from pmw_analysis.analysis.clustering import ClusterModel
 from pmw_analysis.copypaste.utils.cli import EnumAction
 from pmw_analysis.preprocessing.dataframe_polars import _replace_special_missing_values_with_null
@@ -22,7 +23,8 @@ L2_VARIABLES = ['cloudWaterPath', 'convectivePrecipitation', 'frozenPrecipitatio
                 'probabilityOfPrecip', 'totalColumnWaterVaporIndex']
 
 
-def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str, model_path: pathlib.Path) -> float:
+def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str, model_path: pathlib.Path,
+                         output_dir: pathlib.Path | None = None) -> float:
     """
     Calculate B-Cubed F1 score for clustering evaluation.
 
@@ -36,6 +38,9 @@ def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str,
 
         reference_col : str
             Name of column with reference/true cluster assignments.
+
+        output_dir : pathlib.Path | None
+            Directory to save the aggregated L2 table and the contingency table in, as CSV.
 
     Returns
     ----------
@@ -62,6 +67,8 @@ def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str,
     df = _replace_special_missing_values_with_null(df)
     df_agr = df.group_by(cluster_col).mean()
     df_agr = df_agr.sort(cluster_col)[1:][[cluster_col] + L2_VARIABLES]
+    if output_dir is not None:
+        df_agr.write_csv(output_dir / f"l2_{model_path.stem}.csv")
 
     fig, axes = plt.subplots(nrows=1, ncols=len(L2_VARIABLES),
                              figsize=(len(VARIABLE_SURFACE_TYPE_INDEX), 0.25 * len(df_agr) + 1), sharey=True)
@@ -89,6 +96,8 @@ def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str,
         ])
         .sort(cluster_col, reference_col)
     )
+    if output_dir is not None:
+        contingency_table.write_csv(output_dir / f"contingency_{model_path.stem}.csv")
 
     for value in ["avg_precision", "avg_recall"]:
         pivot_table = (
@@ -131,7 +140,7 @@ def calculate_b_cubed_f1(df: pl.DataFrame, cluster_col: str, reference_col: str,
     return avg_f1
 
 
-def main(model_path, transform):
+def main(model_path, transform, output_dir=None):
     # reduction = ArgDimensionalityReduction.PCA
     # clustering = ArgClustering.KMEANS
     # model_path = pathlib.Path(PMW_ANALYSIS_DIR) / "v2" / f"{reduction}_{clustering}.pkl"
@@ -158,7 +167,13 @@ def main(model_path, transform):
 
     labels = pl.Series(COLUMN_CLUSTER, labels)
     df = df.insert_column(-1, labels.alias(COLUMN_CLUSTER))
-    calculate_b_cubed_f1(df, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX, model_path)
+    if output_dir is not None:
+        # Box index: position of the box in EXTENTS_SUBSET
+        box = pl.Series("box", np.repeat(np.arange(len(dfs_partial)), [d.height for d in dfs_partial]))
+        df_labels = df.select([COLUMN_LON, COLUMN_LAT, COLUMN_TIME, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX]
+                              + L2_VARIABLES)
+        df_labels.insert_column(0, box).write_parquet(output_dir / f"labels_{model_path.stem}.parquet")
+    calculate_b_cubed_f1(df, COLUMN_CLUSTER, VARIABLE_SURFACE_TYPE_INDEX, model_path, output_dir)
 
 
 if __name__ == '__main__':
@@ -172,6 +187,8 @@ if __name__ == '__main__':
     parser.add_argument("--clustering", type=ArgClustering, action=EnumAction)
     parser.add_argument("--model-path", type=pathlib.Path,
                         help="Path to the model; by default <DIR_PMW_ANALYSIS>/<transform>/<reduction>_<clustering>.pkl")
+    parser.add_argument("--output-dir", type=pathlib.Path,
+                        help="Directory to save the labels, the contingency table and the aggregated L2 table in")
 
     args = parser.parse_args()
     model_path = args.model_path
@@ -180,5 +197,6 @@ if __name__ == '__main__':
                       f"{args.reduction.value}_{args.clustering.value}.pkl")
     main(
         model_path=model_path,
-        transform=get_transformation_function(args.transform)
+        transform=get_transformation_function(args.transform),
+        output_dir=args.output_dir,
     )
